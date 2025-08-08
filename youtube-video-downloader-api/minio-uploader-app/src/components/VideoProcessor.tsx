@@ -1,0 +1,516 @@
+import { useState } from 'react';
+import {
+  Paper,
+  Title,
+  Text,
+  Button,
+  Group,
+  Collapse,
+  ActionIcon,
+  Alert,
+  Progress,
+  Box,
+  Tabs,
+  TextInput,
+  NumberInput,
+  ColorInput,
+  Select,
+  Switch,
+  Checkbox,
+  Slider,
+  Divider,
+  Stack,
+  rem
+} from '@mantine/core';
+import { useForm } from '@mantine/form';
+import { 
+  Dropzone, 
+  IMAGE_MIME_TYPE
+} from '@mantine/dropzone';
+import type { FileWithPath } from '@mantine/dropzone';
+import {
+  IconSettings,
+  IconWand,
+  IconCheck,
+  IconAlertCircle,
+  IconChevronUp,
+  IconVideo,
+  IconMessageCircle,
+  IconPalette,
+  IconUpload,
+  IconX,
+  IconPhoto
+} from '@tabler/icons-react';
+import {
+  transformVideo,
+  defaultTransformParams,
+  subtitleStyles,
+  fontFamilies,
+  positions,
+  languages,
+  generateJobId,
+  type TransformParams,
+  type TransformResponse
+} from '../services/transformService';
+import { uploadToMinio, minioConfig } from '../services/minio';
+
+interface VideoProcessorProps {
+  videoUrl: string;
+  fileName: string;
+}
+
+export function VideoProcessor({ videoUrl, fileName }: VideoProcessorProps) {
+  const [showSettings, setShowSettings] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [uploadingBackground, setUploadingBackground] = useState(false);
+  const [backgroundUploadProgress, setBackgroundUploadProgress] = useState(0);
+  const [backgroundImageUrl, setBackgroundImageUrl] = useState<string | null>('');
+  const [success, setSuccess] = useState<string | null>(null);
+  const [transformResult, setTransformResult] = useState<TransformResponse | null>(null);
+
+  const form = useForm<Omit<TransformParams, 'minio_object'>>({
+    initialValues: {
+      ...defaultTransformParams,
+      job_id: generateJobId(fileName)
+    }
+  });
+
+  const handleTransform = async (values: Omit<TransformParams, 'minio_object'>) => {
+    // Validar que chat_id no esté vacío
+    if (!values.chat_id || values.chat_id.trim() === '') {
+      setError('El Chat ID de Telegram es obligatorio. Sin este campo, el material terminado no se puede enviar.');
+      return;
+    }
+
+    setProcessing(true);
+    setError(null);
+    setSuccess(null);
+    setTransformResult(null);
+
+    try {
+      // Si hay imagen de fondo subida, usarla en lugar del color
+      const finalValues = {
+        ...values,
+        background_image_url: backgroundImageUrl || values.background_image_url
+      };
+      
+      const result = await transformVideo(videoUrl, finalValues);
+      setTransformResult(result);
+      setSuccess(`Video enviado para transformación. Job ID: ${result.job_id}`);
+    } catch (error) {
+      console.error('Error al transformar video:', error);
+      
+      let errorMessage = 'Error desconocido';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (error && typeof error === 'object') {
+        errorMessage = JSON.stringify(error);
+      } else if (error !== null && error !== undefined) {
+        errorMessage = String(error);
+      }
+      
+      setError(`Error al transformar video: ${errorMessage}`);
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleQuickTransform = () => {
+    // Usar valores predeterminados para transformación rápida
+    handleTransform(form.values);
+  };
+
+  const handleBackgroundImageUpload = async (files: FileWithPath[]) => {
+    if (files.length === 0) return;
+    
+    const file = files[0];
+    setUploadingBackground(true);
+    setBackgroundUploadProgress(0);
+    setError(null);
+    
+    try {
+      const url = await uploadToMinio(
+        file,
+        minioConfig,
+        (progress) => setBackgroundUploadProgress(progress)
+      );
+      
+      setBackgroundImageUrl(url);
+      // Actualizar el formulario con la URL de la imagen
+      form.setFieldValue('background_image_url', url);
+    } catch (error) {
+      console.error('Error al subir imagen de fondo:', error);
+      setError('Error al subir imagen de fondo: ' + (error instanceof Error ? error.message : 'Error desconocido'));
+    } finally {
+      setUploadingBackground(false);
+    }
+  };
+
+  return (
+    <Paper p="md" withBorder mt="md">
+      <Group justify="space-between" mb="md">
+        <div>
+          <Title order={3}>Procesar Video</Title>
+          <Text size="sm" c="dimmed">
+            {fileName} - Subido exitosamente a MinIO
+          </Text>
+        </div>
+        <ActionIcon
+          variant="light"
+          size="lg"
+          onClick={() => setShowSettings(!showSettings)}
+          title={showSettings ? 'Ocultar configuración' : 'Mostrar configuración'}
+        >
+          {showSettings ? <IconChevronUp size={20} /> : <IconSettings size={20} />}
+        </ActionIcon>
+      </Group>
+
+      {/* Vista previa del video */}
+      <Box mb="md">
+        <Text size="sm" mb="xs" fw={500}>Vista previa:</Text>
+        <Text size="xs" c="dimmed" style={{ wordBreak: 'break-all' }}>
+          {videoUrl}
+        </Text>
+      </Box>
+
+      {/* Campo Chat ID obligatorio */}
+      <Box mb="md">
+        <TextInput
+          label="Chat ID de Telegram (Obligatorio)"
+          placeholder="Ejemplo: 123456789"
+          description={
+            <Text size="xs">
+              ¿No tienes tu Chat ID? Visítanos en{' '}
+              <Text
+                component="a"
+                href="https://t.me/Elpublicadordeinstabot"
+                target="_blank"
+                rel="noopener noreferrer"
+                c="blue"
+                td="underline"
+              >
+                @Elpublicadordeinstabot
+              </Text>
+              {' '}y escribe "ID CHAT" para recibirlo.
+            </Text>
+          }
+          required
+          error={!form.values.chat_id && error ? 'Este campo es obligatorio' : null}
+          {...form.getInputProps('chat_id')}
+        />
+      </Box>
+
+      {/* Botón de transformación rápida */}
+      <Group justify="center" mb="md">
+        <Button
+          size="lg"
+          leftSection={<IconWand size={20} />}
+          onClick={handleQuickTransform}
+          loading={processing}
+          disabled={processing}
+        >
+          Transformar Video Automáticamente
+        </Button>
+      </Group>
+
+      {/* Panel de configuración avanzada */}
+      <Collapse in={showSettings}>
+        <Divider my="md" />
+        <form onSubmit={form.onSubmit(handleTransform)}>
+          <Tabs defaultValue="general" mb="md">
+            <Tabs.List>
+              <Tabs.Tab value="general" leftSection={<IconVideo size={16} />}>
+                General
+              </Tabs.Tab>
+              <Tabs.Tab value="subtitles" leftSection={<IconMessageCircle size={16} />}>
+                Subtítulos
+              </Tabs.Tab>
+              <Tabs.Tab value="advanced" leftSection={<IconPalette size={16} />}>
+                Avanzado
+              </Tabs.Tab>
+            </Tabs.List>
+
+            <Tabs.Panel value="general" pt="md">
+              <Stack>
+                <NumberInput
+                  label="Duración del segmento (minutos)"
+                  description="Cada segmento será de esta duración"
+                  min={0.5}
+                  max={10}
+                  step={0.5}
+                  {...form.getInputProps('segment_duration_minutes')}
+                />
+
+                <div>
+                  <Text size="sm" mb="xs">Nivel de zoom: {form.values.zoom_level}</Text>
+                  <Slider
+                    min={0}
+                    max={100}
+                    step={5}
+                    marks={[
+                      { value: 0, label: '0%' },
+                      { value: 30, label: '30%' },
+                      { value: 50, label: '50%' },
+                      { value: 100, label: '100%' }
+                    ]}
+                    {...form.getInputProps('zoom_level')}
+                  />
+                </div>
+
+                <ColorInput
+                  label="Color de fondo"
+                  placeholder="#000000"
+                  {...form.getInputProps('background_color')}
+                />
+
+                <div>
+                  <Text size="sm" mb="xs" fw={500}>Imagen de fondo (opcional)</Text>
+                  <Text size="xs" c="dimmed" mb="xs">
+                    Puedes usar un color de fondo o subir una imagen. Si subes una imagen, se usará en lugar del color.
+                  </Text>
+                  
+                  <Dropzone
+                    onDrop={handleBackgroundImageUpload}
+                    accept={IMAGE_MIME_TYPE}
+                    maxSize={10 * 1024 * 1024} // 10 MB
+                    loading={uploadingBackground}
+                    mb="xs"
+                  >
+                    <Group justify="center" gap="xl" mih={100} style={{ pointerEvents: 'none' }}>
+                      <Dropzone.Accept>
+                        <IconUpload style={{ width: rem(32), height: rem(32), color: 'var(--mantine-color-blue-6)' }} stroke={1.5} />
+                      </Dropzone.Accept>
+                      <Dropzone.Reject>
+                        <IconX style={{ width: rem(32), height: rem(32), color: 'var(--mantine-color-red-6)' }} stroke={1.5} />
+                      </Dropzone.Reject>
+                      <Dropzone.Idle>
+                        <IconPhoto style={{ width: rem(32), height: rem(32), color: 'var(--mantine-color-dimmed)' }} stroke={1.5} />
+                      </Dropzone.Idle>
+                      <div>
+                        <Text size="sm" inline>
+                          Arrastra una imagen aquí o haz clic para seleccionar
+                        </Text>
+                        <Text size="xs" c="dimmed" inline mt={7}>
+                          Formatos soportados: JPG, PNG, GIF (máx. 10MB)
+                        </Text>
+                      </div>
+                    </Group>
+                  </Dropzone>
+                  
+                  {uploadingBackground && (
+                    <Progress value={backgroundUploadProgress} animated mb="xs" />
+                  )}
+                  
+                  {backgroundImageUrl && (
+                    <Alert color="green" mb="xs">
+                      <Text size="xs">Imagen subida correctamente: {backgroundImageUrl}</Text>
+                    </Alert>
+                  )}
+                  
+                  <TextInput
+                    label="O ingresa URL de imagen manualmente"
+                    placeholder="https://ejemplo.com/imagen.jpg"
+                    {...form.getInputProps('background_image_url')}
+                  />
+                </div>
+              </Stack>
+            </Tabs.Panel>
+
+            <Tabs.Panel value="subtitles" pt="md">
+              <Stack>
+                <Switch
+                  label="Añadir subtítulos automáticos"
+                  description="Genera subtítulos usando transcripción automática"
+                  {...form.getInputProps('add_subtitles', { type: 'checkbox' })}
+                />
+
+                {form.values.add_subtitles && (
+                  <>
+                    <Select
+                      label="Idioma"
+                      data={languages}
+                      {...form.getInputProps('language')}
+                    />
+
+                    <Group grow>
+                      <ColorInput
+                        label="Color de línea"
+                        {...form.getInputProps('subtitle_settings.line_color')}
+                      />
+                      <ColorInput
+                        label="Color de palabra"
+                        {...form.getInputProps('subtitle_settings.word_color')}
+                      />
+                    </Group>
+
+                    <Group grow>
+                      <NumberInput
+                        label="Tamaño de fuente"
+                        min={20}
+                        max={100}
+                        {...form.getInputProps('subtitle_settings.font_size')}
+                      />
+                      <NumberInput
+                        label="Máx. palabras por línea"
+                        min={1}
+                        max={10}
+                        {...form.getInputProps('subtitle_settings.max_words_per_line')}
+                      />
+                    </Group>
+
+                    <Group grow>
+                      <Select
+                        label="Estilo"
+                        data={subtitleStyles}
+                        {...form.getInputProps('subtitle_settings.style')}
+                      />
+                      <Select
+                        label="Fuente"
+                        data={fontFamilies}
+                        {...form.getInputProps('subtitle_settings.font_family')}
+                      />
+                    </Group>
+
+                    <Select
+                      label="Posición"
+                      data={positions}
+                      {...form.getInputProps('subtitle_settings.position')}
+                    />
+
+                    <Group>
+                      <Checkbox
+                        label="Mayúsculas"
+                        {...form.getInputProps('subtitle_settings.all_caps', { type: 'checkbox' })}
+                      />
+                      <Checkbox
+                        label="Negrita"
+                        {...form.getInputProps('subtitle_settings.bold', { type: 'checkbox' })}
+                      />
+                      <Checkbox
+                        label="Cursiva"
+                        {...form.getInputProps('subtitle_settings.italic', { type: 'checkbox' })}
+                      />
+                      <Checkbox
+                        label="Subrayado"
+                        {...form.getInputProps('subtitle_settings.underline', { type: 'checkbox' })}
+                      />
+                    </Group>
+
+                    <Group grow>
+                      <NumberInput
+                        label="Ancho del contorno"
+                        min={0}
+                        max={10}
+                        {...form.getInputProps('subtitle_settings.outline_width')}
+                      />
+                      <NumberInput
+                        label="Desplazamiento de sombra"
+                        min={0}
+                        max={10}
+                        {...form.getInputProps('subtitle_settings.shadow_offset')}
+                      />
+                    </Group>
+                  </>
+                )}
+              </Stack>
+            </Tabs.Panel>
+
+            <Tabs.Panel value="advanced" pt="md">
+              <Stack>
+                <TextInput
+                  label="ID del trabajo"
+                  description="Identificador único para este trabajo"
+                  {...form.getInputProps('job_id')}
+                />
+
+                <TextInput
+                  label="URL del webhook"
+                  description="URL para recibir notificaciones de progreso"
+                  {...form.getInputProps('webhook_url')}
+                />
+              </Stack>
+            </Tabs.Panel>
+          </Tabs>
+
+          <Group justify="flex-end" mt="md">
+            <Button
+              type="submit"
+              loading={processing}
+              leftSection={<IconWand size={16} />}
+            >
+              Transformar con Configuración Personalizada
+            </Button>
+          </Group>
+        </form>
+      </Collapse>
+
+      {/* Indicador de progreso */}
+      {processing && (
+        <Box mt="md">
+          <Text size="sm" mb="xs">Enviando video para transformación...</Text>
+          <Progress value={100} animated />
+        </Box>
+      )}
+
+      {/* Mensajes de error y éxito */}
+      {error && (
+        <Alert
+          icon={<IconAlertCircle size="1rem" />}
+          title="Error"
+          color="red"
+          mt="md"
+        >
+          {error}
+        </Alert>
+      )}
+
+      {success && (
+        <Alert
+          icon={<IconCheck size="1rem" />}
+          title="Éxito"
+          color="green"
+          mt="md"
+        >
+          {success}
+        </Alert>
+      )}
+
+      {/* Resultado de la transformación */}
+      {transformResult && (
+        <Paper withBorder p="md" mt="md">
+          <Title order={4} mb="md">Estado de la Transformación</Title>
+          
+          <Group mb="md">
+            <Text><strong>Job ID:</strong> {transformResult.job_id}</Text>
+            <Text><strong>Estado:</strong> {transformResult.status}</Text>
+          </Group>
+          
+          {transformResult.message && (
+            <Text mb="md">{transformResult.message}</Text>
+          )}
+          
+          {transformResult.segments && transformResult.segments.length > 0 && (
+            <>
+              <Text mb="xs"><strong>Segmentos a procesar:</strong> {transformResult.segments.length}</Text>
+              <Stack gap="xs">
+                {transformResult.segments.map((segment, index) => (
+                  <Paper key={index} p="xs" withBorder>
+                    <Group justify="space-between">
+                      <Text size="sm">Segmento {segment.segment_number}</Text>
+                      <Text size="sm" c="dimmed">
+                        {Math.floor(segment.start_time / 60)}:{(segment.start_time % 60).toString().padStart(2, '0')} - 
+                        {Math.floor(segment.end_time / 60)}:{(segment.end_time % 60).toString().padStart(2, '0')} 
+                        ({segment.duration_minutes} min)
+                      </Text>
+                    </Group>
+                  </Paper>
+                ))}
+              </Stack>
+            </>
+          )}
+        </Paper>
+      )}
+    </Paper>
+  );
+}
