@@ -17,7 +17,7 @@ from rapid_api_handler import download_best_quality, download_specific_quality
 app = Flask(__name__)
 
 # Habilitar CORS para todas las rutas con configuración específica
-CORS(app, resources={r"/*": {"origins": ["http://localhost:5173", "http://localhost:5174", "https://minio-uploader-app.windsurf.build", "https://prueba-editor.windsurf.build"], "methods": ["GET", "POST", "OPTIONS"], "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"]}})
+CORS(app, resources={r"/*": {"origins": ["http://localhost:5173", "http://localhost:5174", "https://minio-uploader-app.windsurf.build", "https://prueba-editor.windsurf.build", "https://prueba-fonten.1xrk3z.easypanel.host"], "methods": ["GET", "POST", "OPTIONS"], "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"]}})
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
