@@ -1,0 +1,429 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  TextInput, Button, Group, Paper, Title, Progress, Text, Alert,
+  Badge, Card, Image, Stack, Divider, Tabs, ScrollArea, ActionIcon,
+  Checkbox
+} from '@mantine/core';
+import { useForm } from '@mantine/form';
+import { 
+  IconAlertCircle, IconDownload, IconInfoCircle, IconClock, 
+  IconEye, IconCalendar, IconUser, IconPlayerPlay, IconCloudUpload
+} from '@tabler/icons-react';
+import { 
+  downloadVideo, downloadBestQuality, downloadSelectedQuality, 
+  downloadBestQualityAsBlob, downloadSelectedQualityAsBlob,
+  getVideoInfo, formatDuration, formatViewCount 
+} from '../services/youtube';
+import { uploadToMinio } from '../services/minio';
+import { useAppContext } from '../context/AppContext';
+import type { VideoInfo } from '../types';
+
+const YoutubeDownloader: React.FC = () => {
+  const { addVideo, updateVideo, minioConfig } = useAppContext();
+  const [loading, setLoading] = useState(false);
+  const [videoData, setVideoData] = useState<VideoInfo | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<string | null>('info');
+  const [uploadToMinioDirectly, setUploadToMinioDirectly] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadedUrl, setUploadedUrl] = useState<string | null>(null);
+  
+  // Estado para mostrar en qué etapa del proceso estamos
+  const [processStage, setProcessStage] = useState<'idle' | 'info' | 'downloading' | 'processing' | 'uploading' | 'completed' | 'error'>('idle');
+  const [processMessage, setProcessMessage] = useState<string>('');
+
+  // Cargar videos guardados al iniciar
+  useEffect(() => {
+    // Aquí podríamos cargar videos guardados si es necesario
+  }, []);
+
+  const form = useForm({
+    initialValues: {
+      url: '',
+      quality: '720p'
+    },
+    validate: {
+      url: (value) => (!value ? 'La URL es requerida' : null)
+    }
+  });
+
+  const handleGetInfo = async () => {
+    if (form.validate().hasErrors) return;
+    
+    setLoading(true);
+    setError(null);
+    setVideoData(null);
+    setDownloadError(null);
+    
+    try {
+      const info = await getVideoInfo(form.values.url || '');
+      setVideoData(info);
+      
+      // Añadir el video a la lista con estado pendiente
+      addVideo(info);
+    } catch (err) {
+      setError('Error al obtener información del video. Verifica la URL e intenta nuevamente.');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDownload = async () => {
+    if (!videoData) return;
+    
+    setDownloading(true);
+    setDownloadProgress(0);
+    setDownloadError(null);
+    setUploadedUrl(null);
+    setUploadError(null);
+    setProcessStage('downloading');
+    setProcessMessage('Iniciando descarga...');
+    
+    try {
+      // Si se seleccionó subir directamente a MinIO
+      if (uploadToMinioDirectly) {
+        let videoBlob: Blob;
+        let filename: string;
+        
+        // Usar el backend con ffmpeg para la mejor calidad
+        const response = await downloadBestQualityAsBlob(form.values.url || '', (progress) => {
+          setDownloadProgress(progress);
+          if (progress < 40) {
+            setProcessMessage('Descargando video en la mejor calidad...');
+          } else if (progress < 70) {
+            setProcessMessage('Descargando audio en la mejor calidad...');
+          } else if (progress < 90) {
+            setProcessStage('processing');
+            setProcessMessage('Combinando video y audio con ffmpeg...');
+          } else {
+            setProcessMessage('Finalizando descarga...');
+          }
+        });
+        videoBlob = response;
+        filename = `${videoData.title}.mp4`.replace(/[^a-zA-Z0-9.]/g, '_');
+        
+        // Subir a MinIO
+        setProcessStage('uploading');
+        setProcessMessage('Subiendo a MinIO...');
+        setUploading(true);
+        
+        try {
+          const file = new File([videoBlob], filename, { type: 'video/mp4' });
+          const uploadResult = await uploadToMinio(file, (progress) => {
+            setUploadProgress(progress);
+          });
+          
+          setUploadedUrl(uploadResult.url);
+          setProcessStage('completed');
+          setProcessMessage('¡Video subido exitosamente a MinIO!');
+          
+          // Actualizar el video en el contexto si es necesario
+          if (updateVideo && videoData) {
+            updateVideo(videoData.id, {
+              ...videoData,
+              downloadUrl: uploadResult.url,
+              status: 'completed'
+            });
+          }
+        } catch (uploadErr) {
+          console.error('Error al subir a MinIO:', uploadErr);
+          setUploadError(`Error al subir a MinIO: ${uploadErr instanceof Error ? uploadErr.message : 'Desconocido'}`);
+          setProcessStage('error');
+          setProcessMessage(`Error al subir a MinIO: ${uploadErr instanceof Error ? uploadErr.message : 'Desconocido'}`);
+        } finally {
+          setUploading(false);
+        }
+      } else {
+        // Descarga normal (no subir a MinIO)
+        // Usar el backend con ffmpeg para la mejor calidad
+        const response = await downloadBestQuality(form.values.url || '', (progress) => setDownloadProgress(progress));
+        
+        // Actualizar el video en el contexto
+        if (updateVideo && response.videoInfo) {
+          updateVideo(response.videoInfo.id, response.videoInfo);
+        }
+        
+        // Abrir el enlace de descarga
+        if (response.downloadUrl && typeof response.downloadUrl === 'string') {
+          window.open(response.downloadUrl, '_blank');
+        }
+        
+        setProcessStage('completed');
+        setProcessMessage('¡Descarga completada!');
+      }
+    } catch (error) {
+      console.error('Error al descargar:', error);
+      setDownloadError(`Error: ${error instanceof Error ? error.message : 'Desconocido'}`);
+      setProcessStage('error');
+      setProcessMessage(`Error en el proceso: ${error instanceof Error ? error.message : 'Desconocido'}`);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  // Función para renderizar la información del video
+  const renderVideoInfo = () => {
+    if (!videoData) return null;
+    
+    return (
+      <Card withBorder p="md" radius="md">
+        <Card.Section>
+          {videoData.thumbnail && (
+            <div style={{ position: 'relative' }}>
+              <Image
+                src={videoData.thumbnail}
+                height={180}
+                alt={videoData.title || 'Thumbnail del video'}
+              />
+              <div style={{ 
+                position: 'absolute', 
+                bottom: 10, 
+                right: 10, 
+                background: 'rgba(0,0,0,0.7)', 
+                color: 'white', 
+                padding: '2px 6px', 
+                borderRadius: 4,
+                fontSize: '0.8rem'
+              }}>
+                {videoData.duration ? formatDuration(videoData.duration) : ''}
+              </div>
+            </div>
+          )}
+        </Card.Section>
+        
+        <Title order={4} mt="md" mb="xs" lineClamp={2}>
+          {videoData.title}
+        </Title>
+        
+        <Group gap="xs" mb="md">
+          <Group gap={4}>
+            <IconUser size={16} />
+            <Text size="sm">{videoData.author}</Text>
+          </Group>
+          
+          <Group gap={4}>
+            <IconEye size={16} />
+            <Text size="sm">{videoData.viewCount ? formatViewCount(videoData.viewCount) : 'N/A'}</Text>
+          </Group>
+          
+          <Group gap={4}>
+            <IconCalendar size={16} />
+            <Text size="sm">{videoData.publishDate || 'N/A'}</Text>
+          </Group>
+        </Group>
+        
+        <Tabs value={activeTab} onChange={setActiveTab}>
+          <Tabs.List>
+            <Tabs.Tab value="info" leftSection={<IconInfoCircle size={16} />}>
+              Información
+            </Tabs.Tab>
+            <Tabs.Tab value="formats" leftSection={<IconPlayerPlay size={16} />}>
+              Formatos
+            </Tabs.Tab>
+          </Tabs.List>
+          
+          <Tabs.Panel value="info" pt="xs">
+            <ScrollArea h={150}>
+              <Text size="sm" lineClamp={6}>
+                {videoData.description || 'No hay descripción disponible'}
+              </Text>
+            </ScrollArea>
+          </Tabs.Panel>
+          
+          <Tabs.Panel value="formats" pt="xs">
+            <ScrollArea h={150}>
+              {videoData.formats && videoData.formats.length > 0 ? (
+                <div>
+                  {videoData.formats
+                    .filter(format => format.hasVideo)
+                    .sort((a, b) => {
+                      const aHeight = parseInt(a.height || '0');
+                      const bHeight = parseInt(b.height || '0');
+                      return bHeight - aHeight;
+                    })
+                    .map((format, index) => (
+                      <div key={index} style={{ marginBottom: 8 }}>
+                        <Group position="apart">
+                          <Text size="sm">
+                            {format.qualityLabel || 'Desconocido'} 
+                            {format.fps ? ` ${format.fps}fps` : ''} 
+                            {format.hasAudio ? ' (con audio)' : ' (sin audio)'}
+                          </Text>
+                          <Text size="xs" c="dimmed">
+                            {format.container || 'N/A'}
+                          </Text>
+                        </Group>
+                      </div>
+                    ))}
+                </div>
+              ) : (
+                <Text>No hay información de formatos disponible</Text>
+              )}
+            </ScrollArea>
+          </Tabs.Panel>
+        </Tabs>
+      </Card>
+    );
+  };
+
+  return (
+    <Paper p="md" withBorder>
+      <Title order={2} mb="md">Descargador de YouTube</Title>
+      
+      <form onSubmit={form.onSubmit(handleGetInfo)}>
+        <Group align="end">
+          <TextInput
+            label="URL del video"
+            placeholder="https://www.youtube.com/watch?v=..."
+            required
+            style={{ flex: 1 }}
+            {...form.getInputProps('url')}
+            disabled={loading || downloading}
+            error={form.errors.url}
+          />
+          
+          <Button 
+            type="submit" 
+            loading={loading}
+            leftSection={<IconInfoCircle size={16} />}
+          >
+            Obtener Info
+          </Button>
+        </Group>
+      </form>
+      
+      {error && (
+        <Alert icon={<IconAlertCircle size={16} />} title="Error" color="red" mt="md">
+          {error}
+        </Alert>
+      )}
+      
+      {downloadError && (
+        <Alert icon={<IconAlertCircle size={16} />} title="Error de descarga" color="red" mt="md">
+          {downloadError}
+        </Alert>
+      )}
+      
+      {videoData && (
+        <div style={{ marginTop: 20 }}>
+          {renderVideoInfo()}
+          
+          <div style={{ marginTop: 20 }}>
+            <Group position="apart" align="flex-start">
+              <div>
+                <Group align="center" mb={15}>
+                  <IconDownload size={20} />
+                  <Title order={4}>Opciones de descarga</Title>
+                </Group>
+                
+                <div>
+                  <Text fw={500} size="sm" mb={5}>Resoluciones disponibles:</Text>
+                  <Group gap="xs" mb={10}>
+                    {videoData.formats ? videoData.formats
+                      .filter(f => f.hasVideo && f.qualityLabel)
+                      .map(f => ({ value: f.qualityLabel || '', label: f.qualityLabel || 'Desconocido' }))
+                      .filter((item, i, arr) => arr.findIndex(t => t.value === item.value) === i)
+                      .sort((a, b) => {
+                        const aHeight = parseInt(a.value.replace('p', '')) || 0;
+                        const bHeight = parseInt(b.value.replace('p', '')) || 0;
+                        return bHeight - aHeight;
+                      })
+                      .map((quality, index) => (
+                        <Badge key={index} color={index === 0 ? "green" : "blue"} variant="filled">
+                          {quality.label} {index === 0 ? "(Mejor)" : ""}
+                        </Badge>
+                      )) : (
+                        <Text size="sm" c="dimmed">No hay información de calidad disponible</Text>
+                      )
+                    }
+                  </Group>
+                  <Text size="xs" c="dimmed">Se descargará automáticamente la mejor calidad disponible</Text>
+                  
+                  <Divider my="md" label="Opciones de subida" labelPosition="center" />
+                  
+                  <Stack gap="xs">
+                    <Checkbox
+                      label="Subir directamente a MinIO (sin descargar)"
+                      checked={uploadToMinioDirectly}
+                      onChange={(event) => {
+                        const checked = event.currentTarget.checked;
+                        setUploadToMinioDirectly(checked);
+                      }}
+                      disabled={downloading}
+                    />
+                  </Stack>
+                </div>
+                
+                <Button 
+                  onClick={handleDownload} 
+                  loading={downloading} 
+                  disabled={loading}
+                  leftSection={<IconDownload size={16} />}
+                  mt="md"
+                >
+                  Descargar
+                </Button>
+              </div>
+              
+              <div>
+                {/* Panel de estado del proceso */}
+                {(downloading || uploading || processStage !== 'idle') && (
+                  <div style={{ marginTop: 20, padding: 15, border: '1px solid #eee', borderRadius: 8 }}>
+                    <Title order={4} mb="xs">Estado del proceso</Title>
+                    
+                    <Text size="sm" fw={600} c={processStage === 'error' ? 'red' : 'blue'}>
+                      {processStage === 'downloading' && '⬇️ DESCARGANDO'}
+                      {processStage === 'processing' && '⚙️ PROCESANDO'}
+                      {processStage === 'uploading' && '⬆️ SUBIENDO'}
+                      {processStage === 'completed' && '✅ COMPLETADO'}
+                      {processStage === 'error' && '❌ ERROR'}
+                    </Text>
+                    
+                    <Text size="sm" mt="xs" mb="xs">{processMessage}</Text>
+                    
+                    {downloading && (
+                      <div style={{ marginTop: 10 }}>
+                        <Text size="sm">Progreso de descarga: {Math.round(downloadProgress)}%</Text>
+                        <Progress value={downloadProgress} animated={true} color="blue" />
+                      </div>
+                    )}
+                    
+                    {uploading && (
+                      <div style={{ marginTop: 10 }}>
+                        <Text size="sm">Progreso de subida: {Math.round(uploadProgress)}%</Text>
+                        <Progress value={uploadProgress} animated={true} color="teal" />
+                      </div>
+                    )}
+                  </div>
+                )}
+                
+                {uploadedUrl && (
+                  <Alert color="teal" title="¡Subida exitosa!" mt="sm">
+                    <Text>El video ha sido subido exitosamente a MinIO.</Text>
+                    <Button 
+                      variant="outline" 
+                      color="teal" 
+                      size="xs" 
+                      mt="xs"
+                      onClick={() => window.open(uploadedUrl, '_blank')}
+                    >
+                      Ver video
+                    </Button>
+                  </Alert>
+                )}
+              </div>
+            </Group>
+          </div>
+        </div>
+      )}
+    </Paper>
+  );
+};
+
+export default YoutubeDownloader;
