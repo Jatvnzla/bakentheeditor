@@ -76,15 +76,19 @@ export const uploadToMinio = async (
     formData.append('bucket', config.bucket);
     formData.append('path', config.uploadPath);
     
-    // Configurar el progreso simulado
+    // Configurar el progreso simulado con ajustes para archivos grandes
     let progressInterval: ReturnType<typeof setInterval> | null = null;
     if (onProgress) {
       const totalSize = file.size;
       let progress = 5;
       
+      // Ajustar el intervalo según el tamaño del archivo
+      const intervalTime = totalSize > 100 * 1024 * 1024 ? 1000 : 300; // 1 segundo para archivos >100MB
+      
       progressInterval = setInterval(() => {
         // Incremento variable basado en el tamaño del archivo
-        const increment = Math.max(Math.min(5, 100 / (totalSize / (5 * 1024 * 1024))), 1);
+        // Más lento para archivos grandes
+        const increment = Math.max(Math.min(3, 100 / (totalSize / (2 * 1024 * 1024))), 0.5);
         progress += increment;
         
         if (progress >= 95) { // Reservar el último 5% para la confirmación
@@ -95,18 +99,29 @@ export const uploadToMinio = async (
           progress = 95;
         }
         onProgress(progress);
-      }, 300);
+      }, intervalTime);
     }
     
     // URL del backend (configurable para desarrollo/producción)
     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
     
+    // Configurar timeout extendido para archivos grandes
+    const timeoutDuration = Math.max(5 * 60 * 1000, file.size / 50000); // Mínimo 5 minutos, o más según tamaño
+    
+    // Crear controlador de aborto con timeout extendido
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutDuration);
+    
     // Enviar el archivo al backend para que lo suba a MinIO
     const response = await fetch(`${API_URL}/upload_to_minio`, {
       method: 'POST',
       body: formData,
+      signal: controller.signal
       // No es necesario especificar Content-Type, fetch lo establece automáticamente con FormData
     });
+    
+    // Limpiar el timeout
+    clearTimeout(timeoutId);
     
     // Limpiar el intervalo de progreso
     if (progressInterval) {

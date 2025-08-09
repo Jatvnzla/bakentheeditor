@@ -289,6 +289,9 @@ def download_best():
                 logger.error(f"Error al limpiar directorio temporal: {str(e)}")
 
 
+# Configuración de límite de tamaño de archivo (500MB)
+app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024
+
 # Endpoint para subir archivos a MinIO
 @app.route('/upload_to_minio', methods=['POST', 'OPTIONS'])
 def upload_to_minio():
@@ -311,10 +314,6 @@ def upload_to_minio():
         # Generar un nombre único para el archivo
         filename = f"{path}/{int(time.time())}_{file.filename}"
         
-        # Guardar el archivo temporalmente
-        temp_path = os.path.join(tempfile.gettempdir(), file.filename)
-        file.save(temp_path)
-        
         # Importar boto3 para interactuar con MinIO/S3
         import boto3
         from botocore.client import Config
@@ -329,15 +328,38 @@ def upload_to_minio():
             region_name='us-east-1'
         )
         
-        # Subir archivo a MinIO
-        s3_client.upload_file(
-            temp_path,
-            bucket,
-            filename
-        )
+        # Usar un enfoque de streaming para archivos grandes
+        # Crear un archivo temporal con nombre único
+        import uuid
+        temp_file_name = str(uuid.uuid4())
+        temp_path = os.path.join(tempfile.gettempdir(), temp_file_name)
+        
+        # Guardar el archivo en chunks para evitar problemas de memoria
+        chunk_size = 5 * 1024 * 1024  # 5MB chunks
+        with open(temp_path, 'wb') as f:
+            chunk = file.read(chunk_size)
+            while chunk:
+                f.write(chunk)
+                chunk = file.read(chunk_size)
+        
+        # Subir archivo a MinIO con gestión de timeout
+        try:
+            s3_client.upload_file(
+                temp_path,
+                bucket,
+                filename,
+                ExtraArgs={'ContentType': file.content_type}
+            )
+        except Exception as upload_error:
+            # Limpiar archivo temporal en caso de error
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            logger.error(f"Error al subir a MinIO: {str(upload_error)}")
+            return jsonify({"error": f"Error al subir a MinIO: {str(upload_error)}"}), 500
         
         # Eliminar archivo temporal
-        os.remove(temp_path)
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
         
         # Generar URL del archivo
         file_url = f"https://prueba-minio.1xrk3z.easypanel.host/{bucket}/{filename}"
