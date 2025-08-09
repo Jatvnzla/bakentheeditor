@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_file, Response
+from flask import Flask, request, jsonify, send_file, Response, make_response
 from flask_cors import CORS
 import os
 import json
@@ -16,18 +16,21 @@ from rapid_api_handler import download_best_quality, download_specific_quality
 
 app = Flask(__name__)
 
-# Configuración más robusta de CORS
-allowed_origins = ["http://localhost:5173", "http://localhost:5174", "https://minio-uploader-app.windsurf.build", "https://prueba-editor.windsurf.build", "https://prueba-fonten.1xrk3z.easypanel.host", "*"]
+# Configuración de CORS
+allowed_origins = [
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "https://minio-uploader-app.windsurf.build",
+    "https://prueba-editor.windsurf.build",
+    "https://prueba-fonten.1xrk3z.easypanel.host",
+]
 
-# Aplicar CORS de manera más explícita
-cors = CORS(
+CORS(
     app,
     resources={r"/*": {
         "origins": allowed_origins,
         "methods": ["GET", "POST", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
-        "expose_headers": ["Content-Type", "Authorization"],
-        "supports_credentials": True,
         "max_age": 600
     }}
 )
@@ -35,14 +38,16 @@ cors = CORS(
 # Middleware para asegurar que los encabezados CORS se apliquen a todas las respuestas
 @app.after_request
 def add_cors_headers(response):
-    origin = request.headers.get('Origin')
-    if origin in allowed_origins or '*' in allowed_origins:
-        response.headers.add('Access-Control-Allow-Origin', origin or '*')
-        response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
-        response.headers.add('Access-Control-Expose-Headers', 'Content-Type, Authorization')
-        response.headers.add('Access-Control-Allow-Credentials', 'true')
-        response.headers.add('Access-Control-Max-Age', '600')
+    origin = request.headers.get('Origin', '')
+    # Si el origin es válido, reflejarlo; si no, usar el dominio del frontend por defecto
+    if origin in allowed_origins:
+        response.headers['Access-Control-Allow-Origin'] = origin
+    else:
+        response.headers['Access-Control-Allow-Origin'] = 'https://prueba-fonten.1xrk3z.easypanel.host'
+    response.headers['Vary'] = 'Origin'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+    response.headers['Access-Control-Max-Age'] = '600'
     return response
 
 # Configurar logging
@@ -322,9 +327,19 @@ app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024
 @app.route('/upload_to_minio', methods=['POST', 'OPTIONS'])
 def upload_to_minio():
     try:
-        # Si es una solicitud OPTIONS (preflight), responder adecuadamente
+        # Si es una solicitud OPTIONS (preflight), responder con encabezados CORS
         if request.method == 'OPTIONS':
-            return '', 200
+            resp = make_response('', 204)
+            origin = request.headers.get('Origin', '')
+            if origin in allowed_origins:
+                resp.headers['Access-Control-Allow-Origin'] = origin
+            else:
+                resp.headers['Access-Control-Allow-Origin'] = 'https://prueba-fonten.1xrk3z.easypanel.host'
+            resp.headers['Vary'] = 'Origin'
+            resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+            resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+            resp.headers['Access-Control-Max-Age'] = '600'
+            return resp
         # Verificar si hay un archivo en la solicitud
         if 'file' not in request.files:
             return jsonify({"error": "No se encontró ningún archivo en la solicitud"}), 400
