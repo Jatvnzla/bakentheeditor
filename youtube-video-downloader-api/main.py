@@ -1,14 +1,14 @@
 from flask import Flask, request, jsonify, send_file, Response
 from flask_cors import CORS
 import os
-import tempfile
-import shutil
-import uuid
-import logging
 import json
-import subprocess
+import logging
+import uuid
+import shutil
+import tempfile
 import re
 import time
+import subprocess
 from pytube import YouTube
 from pytube.exceptions import PytubeError
 from urllib.parse import urlparse, parse_qs
@@ -16,8 +16,34 @@ from rapid_api_handler import download_best_quality, download_specific_quality
 
 app = Flask(__name__)
 
-# Habilitar CORS para todas las rutas con configuración específica
-CORS(app, resources={r"/*": {"origins": ["http://localhost:5173", "http://localhost:5174", "https://minio-uploader-app.windsurf.build", "https://prueba-editor.windsurf.build", "https://prueba-fonten.1xrk3z.easypanel.host"], "methods": ["GET", "POST", "OPTIONS"], "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"]}})
+# Configuración más robusta de CORS
+allowed_origins = ["http://localhost:5173", "http://localhost:5174", "https://minio-uploader-app.windsurf.build", "https://prueba-editor.windsurf.build", "https://prueba-fonten.1xrk3z.easypanel.host", "*"]
+
+# Aplicar CORS de manera más explícita
+cors = CORS(
+    app,
+    resources={r"/*": {
+        "origins": allowed_origins,
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
+        "expose_headers": ["Content-Type", "Authorization"],
+        "supports_credentials": True,
+        "max_age": 600
+    }}
+)
+
+# Middleware para asegurar que los encabezados CORS se apliquen a todas las respuestas
+@app.after_request
+def add_cors_headers(response):
+    origin = request.headers.get('Origin')
+    if origin in allowed_origins or '*' in allowed_origins:
+        response.headers.add('Access-Control-Allow-Origin', origin or '*')
+        response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
+        response.headers.add('Access-Control-Expose-Headers', 'Content-Type, Authorization')
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        response.headers.add('Access-Control-Max-Age', '600')
+    return response
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
