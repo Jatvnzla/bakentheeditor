@@ -343,6 +343,7 @@ def upload_to_minio():
         # Importar boto3 para interactuar con MinIO/S3
         import boto3
         from botocore.client import Config
+        from botocore.exceptions import ClientError
         
         # Configurar cliente S3
         s3_client = boto3.client(
@@ -362,43 +363,90 @@ def upload_to_minio():
         
         # Guardar el archivo en chunks para evitar problemas de memoria
         chunk_size = 5 * 1024 * 1024  # 5MB chunks
+        total_size = 0  # Inicializar contador de tamaño
         with open(temp_path, 'wb') as f:
             chunk = file.read(chunk_size)
             while chunk:
                 f.write(chunk)
+                total_size += len(chunk)
                 chunk = file.read(chunk_size)
         
-        # Subir archivo a MinIO con gestión de timeout
+        # Subir archivo a MinIO con gestión de timeout y reintentos
         try:
+            logger.info(f"Iniciando subida a MinIO: bucket={bucket}, filename={filename}")
+            # Configurar callback para monitorear progreso
+            file_size = os.path.getsize(temp_path)
+            uploaded_bytes = 0
+            
+            def upload_progress(bytes_transferred):
+                nonlocal uploaded_bytes
+                new_uploaded = bytes_transferred - uploaded_bytes
+                uploaded_bytes = bytes_transferred
+                logger.info(f"Progreso de subida: {uploaded_bytes}/{file_size} bytes ({(uploaded_bytes/file_size)*100:.2f}%)")
+            
+            # Subir con callback de progreso
             s3_client.upload_file(
                 temp_path,
                 bucket,
                 filename,
-                ExtraArgs={'ContentType': file.content_type}
+                ExtraArgs={
+                    'ContentType': file.content_type,
+                    'ACL': 'public-read'  # Hacer el archivo accesible públicamente
+                },
+                Callback=upload_progress
             )
-        except Exception as upload_error:
-            # Limpiar archivo temporal en caso de error
+            logger.info(f"Subida completada exitosamente: {filename}")
+            
+        except ClientError as client_error:
+            # Capturar errores específicos de S3/MinIO
+            error_code = client_error.response.get('Error', {}).get('Code', 'Unknown')
+            error_message = client_error.response.get('Error', {}).get('Message', str(client_error))
+            logger.error(f"Error de cliente S3: {error_code} - {error_message}")
+            
+            # Limpiar archivo temporal
             if os.path.exists(temp_path):
                 os.remove(temp_path)
+                
+            return jsonify({
+                "error": f"Error al subir a MinIO: {error_code} - {error_message}",
+                "error_code": error_code
+            }), 500
+            
+        except Exception as upload_error:
+            # Capturar otros errores
             logger.error(f"Error al subir a MinIO: {str(upload_error)}")
+            
+            # Limpiar archivo temporal
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+                
             return jsonify({"error": f"Error al subir a MinIO: {str(upload_error)}"}), 500
         
-        # Eliminar archivo temporal
+        # Eliminar archivo temporal después de subida exitosa
         if os.path.exists(temp_path):
             os.remove(temp_path)
+            logger.info(f"Archivo temporal eliminado: {temp_path}")
         
         # Generar URL del archivo
         file_url = f"https://prueba-minio.1xrk3z.easypanel.host/{bucket}/{filename}"
         
+        # Respuesta exitosa
+        logger.info(f"Archivo subido correctamente: {file_url}")
         return jsonify({
             "message": "Archivo subido correctamente",
             "url": file_url,
-            "filename": filename
+            "filename": filename,
+            "size": total_size
         }), 200
         
     except Exception as e:
         logger.error(f"Error al subir archivo a MinIO: {str(e)}")
-        return jsonify({"error": f"Error al subir archivo: {str(e)}"}), 500
+        
+        # Limpiar archivo temporal en caso de error general
+        if 'temp_path' in locals() and os.path.exists(temp_path):
+            os.remove(temp_path)
+            
+        return jsonify({"error": f"Error al subir archivo a MinIO: {str(e)}"}), 500
 
 # Endpoint para descargar video en calidad específica
 @app.route('/download_selected/<quality>', methods=['POST', 'OPTIONS'])
