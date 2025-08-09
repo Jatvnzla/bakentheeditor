@@ -1,23 +1,19 @@
-# Dockerfile para MinIO Uploader Frontend
-FROM node:18-alpine
-
-# Establecer directorio de trabajo
+## Etapa de build
+FROM node:18-alpine AS build
 WORKDIR /app
-
-# Copiar package.json y package-lock.json
 COPY package*.json ./
-
-# Instalar dependencias
-RUN npm install
-
-# Copiar el código fuente
+RUN npm ci --no-audit --prefer-offline
 COPY . .
-
-# Compilar la aplicación
 RUN npm run build
 
-# Exponer el puerto
-EXPOSE 4173
+## Etapa de runtime con Nginx
+FROM nginx:1.25-alpine
 
-# Comando para iniciar la aplicación
-CMD ["npm", "start"]
+# Copiar build estático
+COPY --from=build /app/dist /usr/share/nginx/html
+
+# Copiar configuración de Nginx que sirve la app y proxyea /api al backend
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
