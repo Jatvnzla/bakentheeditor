@@ -323,6 +323,72 @@ def download_best():
 # Configuración de límite de tamaño de archivo (500MB)
 app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024
 
+# Endpoint: presigned URL para subir directo a MinIO (PUT)
+@app.route('/v1/minio/presign', methods=['POST', 'OPTIONS'])
+def presign_minio_put():
+    try:
+        # Preflight
+        if request.method == 'OPTIONS':
+            resp = make_response('', 204)
+            origin = request.headers.get('Origin', '')
+            if origin in allowed_origins:
+                resp.headers['Access-Control-Allow-Origin'] = origin
+            else:
+                resp.headers['Access-Control-Allow-Origin'] = 'https://prueba-fonten.1xrk3z.easypanel.host'
+            resp.headers['Vary'] = 'Origin'
+            resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+            resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+            resp.headers['Access-Control-Max-Age'] = '600'
+            return resp
+
+        data = request.get_json(silent=True) or {}
+        filename = data.get('filename') or f"file_{int(time.time())}"
+        content_type = data.get('content_type') or 'application/octet-stream'
+        bucket = data.get('bucket', 'ciberfobia')
+        path = data.get('path', 'videosYotube')
+
+        # Sanitizar nombre de archivo
+        safe_name = ''.join([c for c in filename if c.isalnum() or c in (' ', '.', '_', '-')]).strip()
+        if not safe_name:
+            safe_name = f"file_{int(time.time())}"
+        key = f"{path}/{int(time.time())}_{safe_name}"
+
+        # Cliente S3 (MinIO)
+        import boto3
+        from botocore.client import Config
+        s3_client = boto3.client(
+            's3',
+            endpoint_url='https://prueba-minio.1xrk3z.easypanel.host',
+            aws_access_key_id='l2jatniel',
+            aws_secret_access_key='04142312256',
+            config=Config(signature_version='s3v4'),
+            region_name='us-east-1'
+        )
+
+        # Generar URL firmada para PUT (expira en 1h)
+        params = {
+            'Bucket': bucket,
+            'Key': key,
+            'ContentType': content_type,
+        }
+        url = s3_client.generate_presigned_url(
+            ClientMethod='put_object',
+            Params=params,
+            ExpiresIn=3600
+        )
+
+        object_url = f"https://prueba-minio.1xrk3z.easypanel.host/{bucket}/{key}"
+        return jsonify({
+            'url': url,
+            'key': key,
+            'bucket': bucket,
+            'object_url': object_url,
+            'expires_in': 3600
+        }), 200
+    except Exception as e:
+        logger.exception('Error al generar URL firmada de MinIO')
+        return jsonify({'error': str(e)}), 500
+
 # Endpoint para subir archivos a MinIO
 @app.route('/upload_to_minio', methods=['POST', 'OPTIONS'])
 def upload_to_minio():

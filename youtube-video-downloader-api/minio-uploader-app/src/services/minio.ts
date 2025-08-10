@@ -88,61 +88,52 @@ export const uploadToMinio = async (
       progressInterval = setInterval(() => {
         // Incremento variable basado en el tamaño del archivo
         // Más lento para archivos grandes
-        const increment = Math.max(Math.min(3, 100 / (totalSize / (2 * 1024 * 1024))), 0.5);
-        progress += increment;
-        
-        if (progress >= 95) { // Reservar el último 5% para la confirmación
-          if (progressInterval) {
-            clearInterval(progressInterval);
-            progressInterval = null;
-          }
-          progress = 95;
-        }
-        onProgress(progress);
-      }, intervalTime);
-    }
-    
-    // URL del backend (configurable para desarrollo/producción)
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-    
-    // Configurar timeout extendido para archivos grandes
-    const timeoutDuration = Math.max(5 * 60 * 1000, file.size / 50000); // Mínimo 5 minutos, o más según tamaño
-    
-    // Crear controlador de aborto con timeout extendido
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutDuration);
-    
-    // Enviar el archivo al backend para que lo suba a MinIO
-    const response = await fetch(`${API_URL}/upload_to_minio`, {
       method: 'POST',
-      body: formData,
-      signal: controller.signal
-      // No es necesario especificar Content-Type, fetch lo establece automáticamente con FormData
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        filename: file.name,
+        content_type: file.type || 'application/octet-stream',
+        bucket: config.bucket,
+        path: config.uploadPath,
+      }),
     });
-    
-    // Limpiar el timeout
-    clearTimeout(timeoutId);
-    
-    // Limpiar el intervalo de progreso
-    if (progressInterval) {
-      clearInterval(progressInterval);
+    if (!presignRes.ok) {
+      let msg = 'No se pudo obtener URL firmada';
+      try { const e = await presignRes.json(); msg = e.error || msg; } catch {}
+      throw new Error(msg);
     }
-    
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Error al subir archivo');
-    }
-    
-    const data = await response.json();
-    
-    // Actualizar al 100% cuando se complete
-    if (onProgress) {
-      onProgress(100);
-    }
-    
-    return data.url;
+    const { url, object_url } = await presignRes.json();
+
+    // 2) Subir directo a MinIO usando PUT y XHR para progreso real
+    await new Promise<void>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('PUT', url);
+      xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+      xhr.timeout = 1000 * 60 * 20; // 20 minutos
+
+      xhr.upload.onprogress = (evt) => {
+        if (!onProgress) return;
+        if (evt.lengthComputable) {
+          const p = Math.min(99, Math.round((evt.loaded / evt.total) * 100));
+          onProgress(p);
+        }
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          if (onProgress) onProgress(100);
+          resolve();
+        } else {
+          reject(new Error(`Error PUT MinIO: ${xhr.status} ${xhr.statusText}`));
+        }
+      };
+      xhr.onerror = () => reject(new Error('Fallo de red durante la subida'));
+      xhr.ontimeout = () => reject(new Error('Timeout en la subida'));
+      xhr.send(file);
+    });
+
+    return object_url;
   } catch (error) {
-    console.error('Error al subir archivo a MinIO:', error);
+    console.error('Error al subir archivo a MinIO (presigned):', error);
     throw error;
   }
 };
