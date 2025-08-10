@@ -111,7 +111,23 @@ export const uploadToMinio = async (
           if (onProgress) onProgress(100);
           resolve();
         } else {
-          reject(new Error(`Error PUT MinIO: ${xhr.status} ${xhr.statusText}`));
+          // Intentar obtener más información del error
+          let errorDetails = `${xhr.status} ${xhr.statusText}`;
+          try {
+            const responseText = xhr.responseText;
+            if (responseText) {
+              errorDetails += ` - Response: ${responseText.substring(0, 200)}`;
+            }
+          } catch (e) {
+            // Ignorar errores al leer responseText
+          }
+          console.error('PUT Error Details:', {
+            status: xhr.status,
+            statusText: xhr.statusText,
+            responseText: xhr.responseText,
+            url: proxiedUrl
+          });
+          reject(new Error(`Error PUT MinIO: ${errorDetails}`));
         }
       };
       xhr.onerror = () => reject(new Error('Fallo de red durante la subida'));
