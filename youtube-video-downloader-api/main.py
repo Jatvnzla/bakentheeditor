@@ -383,7 +383,7 @@ def presign_minio_put():
         params = {
             'Bucket': bucket,
             'Key': key,
-            'ContentType': content_type,
+            # Omitir ContentType en la firma para evitar rechazos si el header cambia en el camino
         }
         url = s3_client.generate_presigned_url(
             ClientMethod='put_object',
