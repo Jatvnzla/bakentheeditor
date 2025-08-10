@@ -86,10 +86,16 @@ export const uploadToMinio = async (
     }
     const { url, object_url } = await presignRes.json();
 
+    // Reescribir a proxy local para evitar CORS del navegador
+    const proxiedUrl = url.replace(
+      /^https?:\/\/prueba-minio\.1xrk3z\.easypanel\.host\//,
+      '/minio-proxy/'
+    );
+
     // 2) Subir directo a MinIO usando PUT y XHR para progreso real
     await new Promise<void>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      xhr.open('PUT', url);
+      xhr.open('PUT', proxiedUrl);
       xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
       xhr.timeout = 1000 * 60 * 20; // 20 minutos
 
