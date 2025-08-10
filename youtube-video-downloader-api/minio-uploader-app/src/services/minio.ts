@@ -60,34 +60,16 @@ export const listMinioObjects = async (
 
 // Función para subir un archivo a MinIO
 export const uploadToMinio = async (
-  file: File, 
+  file: File,
   config: MinioConfig = minioConfig,
   onProgress?: (progress: number) => void
 ): Promise<string> => {
   try {
-    // Iniciar con un pequeño progreso para indicar que la carga comenzó
-    if (onProgress) {
-      onProgress(5);
-    }
-    
-    // Crear un FormData para enviar el archivo al backend
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('bucket', config.bucket);
-    formData.append('path', config.uploadPath);
-    
-    // Configurar el progreso simulado con ajustes para archivos grandes
-    let progressInterval: ReturnType<typeof setInterval> | null = null;
-    if (onProgress) {
-      const totalSize = file.size;
-      let progress = 5;
-      
-      // Ajustar el intervalo según el tamaño del archivo
-      const intervalTime = totalSize > 100 * 1024 * 1024 ? 1000 : 300; // 1 segundo para archivos >100MB
-      
-      progressInterval = setInterval(() => {
-        // Incremento variable basado en el tamaño del archivo
-        // Más lento para archivos grandes
+    if (onProgress) onProgress(5);
+
+    // 1) Solicitar URL firmada al backend
+    const API_URL = (import.meta as any).env?.VITE_API_URL || '/api';
+    const presignRes = await fetch(`${API_URL}/v1/minio/presign`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
