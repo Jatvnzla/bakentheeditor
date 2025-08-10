@@ -365,7 +365,7 @@ def presign_minio_put():
             region_name='us-east-1'
         )
 
-        # Generar URL firmada para PUT (expira en 1h)
+        # Generar URL firmada para PUT (expira en 6h)
         params = {
             'Bucket': bucket,
             'Key': key,
@@ -374,7 +374,7 @@ def presign_minio_put():
         url = s3_client.generate_presigned_url(
             ClientMethod='put_object',
             Params=params,
-            ExpiresIn=3600
+            ExpiresIn=21600
         )
 
         object_url = f"https://prueba-minio.1xrk3z.easypanel.host/{bucket}/{key}"
@@ -383,7 +383,7 @@ def presign_minio_put():
             'key': key,
             'bucket': bucket,
             'object_url': object_url,
-            'expires_in': 3600
+            'expires_in': 21600
         }), 200
     except Exception as e:
         logger.exception('Error al generar URL firmada de MinIO')
