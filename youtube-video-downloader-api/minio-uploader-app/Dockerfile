@@ -2,7 +2,12 @@
 FROM node:18-alpine AS build
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci --no-audit --prefer-offline
+# Usar npm ci si existe package-lock.json; si no, fallback a npm install
+RUN if [ -f package-lock.json ]; then \
+      npm ci --no-audit --prefer-offline; \
+    else \
+      npm install --no-audit; \
+    fi
 COPY . .
 RUN npm run build
 
