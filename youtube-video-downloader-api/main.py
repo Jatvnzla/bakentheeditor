@@ -389,6 +389,145 @@ def presign_minio_put():
         logger.exception('Error al generar URL firmada de MinIO')
         return jsonify({'error': str(e)}), 500
 
+# Multipart Upload a MinIO (crear, firmar partes, completar)
+@app.route('/v1/minio/multipart/create', methods=['POST', 'OPTIONS'])
+def minio_multipart_create():
+    try:
+        if request.method == 'OPTIONS':
+            resp = make_response('', 204)
+            origin = request.headers.get('Origin', '')
+            resp.headers['Access-Control-Allow-Origin'] = origin if origin in allowed_origins else 'https://prueba-fonten.1xrk3z.easypanel.host'
+            resp.headers['Vary'] = 'Origin'
+            resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+            resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+            resp.headers['Access-Control-Max-Age'] = '600'
+            return resp
+
+        data = request.get_json(silent=True) or {}
+        bucket = data.get('bucket', 'ciberfobia')
+        path = data.get('path', 'videosYotube')
+        filename = data.get('filename') or f"file_{int(time.time())}"
+        content_type = data.get('content_type') or 'application/octet-stream'
+
+        safe_name = ''.join([c for c in filename if c.isalnum() or c in (' ', '.', '_', '-')]).strip()
+        if not safe_name:
+            safe_name = f"file_{int(time.time())}"
+        key = f"{path}/{int(time.time())}_{safe_name}"
+
+        import boto3
+        from botocore.client import Config
+        s3_client = boto3.client(
+            's3',
+            endpoint_url='https://prueba-minio.1xrk3z.easypanel.host',
+            aws_access_key_id='l2jatniel',
+            aws_secret_access_key='04142312256',
+            config=Config(signature_version='s3v4'),
+            region_name='us-east-1'
+        )
+
+        resp = s3_client.create_multipart_upload(Bucket=bucket, Key=key, ContentType=content_type)
+        upload_id = resp['UploadId']
+        object_url = f"https://prueba-minio.1xrk3z.easypanel.host/{bucket}/{key}"
+        return jsonify({
+            'bucket': bucket,
+            'key': key,
+            'upload_id': upload_id,
+            'object_url': object_url
+        })
+    except Exception as e:
+        logger.exception('Error en multipart create')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/v1/minio/multipart/presign-part', methods=['POST', 'OPTIONS'])
+def minio_multipart_presign_part():
+    try:
+        if request.method == 'OPTIONS':
+            resp = make_response('', 204)
+            origin = request.headers.get('Origin', '')
+            resp.headers['Access-Control-Allow-Origin'] = origin if origin in allowed_origins else 'https://prueba-fonten.1xrk3z.easypanel.host'
+            resp.headers['Vary'] = 'Origin'
+            resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+            resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+            resp.headers['Access-Control-Max-Age'] = '600'
+            return resp
+
+        data = request.get_json(silent=True) or {}
+        bucket = data['bucket']
+        key = data['key']
+        upload_id = data['upload_id']
+        part_number = int(data['part_number'])
+        content_type = data.get('content_type') or 'application/octet-stream'
+
+        import boto3
+        from botocore.client import Config
+        s3_client = boto3.client(
+            's3',
+            endpoint_url='https://prueba-minio.1xrk3z.easypanel.host',
+            aws_access_key_id='l2jatniel',
+            aws_secret_access_key='04142312256',
+            config=Config(signature_version='s3v4'),
+            region_name='us-east-1'
+        )
+
+        url = s3_client.generate_presigned_url(
+            ClientMethod='upload_part',
+            Params={
+                'Bucket': bucket,
+                'Key': key,
+                'UploadId': upload_id,
+                'PartNumber': part_number
+            },
+            ExpiresIn=21600
+        )
+        return jsonify({'url': url})
+    except Exception as e:
+        logger.exception('Error en multipart presign part')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/v1/minio/multipart/complete', methods=['POST', 'OPTIONS'])
+def minio_multipart_complete():
+    try:
+        if request.method == 'OPTIONS':
+            resp = make_response('', 204)
+            origin = request.headers.get('Origin', '')
+            resp.headers['Access-Control-Allow-Origin'] = origin if origin in allowed_origins else 'https://prueba-fonten.1xrk3z.easypanel.host'
+            resp.headers['Vary'] = 'Origin'
+            resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+            resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+            resp.headers['Access-Control-Max-Age'] = '600'
+            return resp
+
+        data = request.get_json(silent=True) or {}
+        bucket = data['bucket']
+        key = data['key']
+        upload_id = data['upload_id']
+        parts = data['parts']  # [{ETag, PartNumber}]
+
+        import boto3
+        from botocore.client import Config
+        s3_client = boto3.client(
+            's3',
+            endpoint_url='https://prueba-minio.1xrk3z.easypanel.host',
+            aws_access_key_id='l2jatniel',
+            aws_secret_access_key='04142312256',
+            config=Config(signature_version='s3v4'),
+            region_name='us-east-1'
+        )
+
+        resp = s3_client.complete_multipart_upload(
+            Bucket=bucket,
+            Key=key,
+            UploadId=upload_id,
+            MultipartUpload={'Parts': parts}
+        )
+        object_url = f"https://prueba-minio.1xrk3z.easypanel.host/{bucket}/{key}"
+        return jsonify({'object_url': object_url, 'result': resp})
+    except Exception as e:
+        logger.exception('Error en multipart complete')
+        return jsonify({'error': str(e)}), 500
+
 # Endpoint para subir archivos a MinIO
 @app.route('/upload_to_minio', methods=['POST', 'OPTIONS'])
 def upload_to_minio():
