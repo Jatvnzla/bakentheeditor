@@ -370,14 +370,7 @@ def presign_minio_put():
         # Cliente S3 (MinIO)
         import boto3
         from botocore.client import Config
-        s3_client = boto3.client(
-            's3',
-            endpoint_url='https://prueba-minio.1xrk3z.easypanel.host',
-            aws_access_key_id='l2jatniel',
-            aws_secret_access_key='04142312256',
-            config=Config(signature_version='s3v4'),
-            region_name='us-east-1'
-        )
+        s3_client = get_s3_client()
 
         # Generar URL firmada para PUT (expira en 6h)
         params = {
@@ -401,6 +394,82 @@ def presign_minio_put():
         }), 200
     except Exception as e:
         logger.exception('Error al generar URL firmada de MinIO')
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/v1/minio/upload', methods=['POST'])
+def upload_minio_server_side():
+    """
+    Subida directa desde el backend a MinIO para archivos grandes.
+    Request: multipart/form-data con campos:
+      - file: archivo
+      - bucket: nombre del bucket
+      - path: prefijo opcional en el bucket
+    Respuesta: { key, etag, object_url }
+    """
+    try:
+        file = request.files.get('file')
+        bucket = request.form.get('bucket')
+        path = request.form.get('path', '').strip('/')
+        if not file or not bucket:
+            return jsonify({'error': 'file y bucket son requeridos'}), 400
+
+        # Sanitizar nombre de archivo de forma consistente con presign
+        filename = file.filename or 'upload.bin'
+        try:
+            import unicodedata, re
+            nfkd = unicodedata.normalize('NFKD', filename)
+            ascii_name = nfkd.encode('ascii', 'ignore').decode('ascii')
+            safe = re.sub(r'[^A-Za-z0-9._\-]+', '_', ascii_name).strip('._')
+            safe = safe or 'upload.bin'
+            safe = safe[:180]
+        except Exception:
+            safe = 'upload.bin'
+
+        key = f"{path}/{int(time.time())}_{safe}" if path else f"{int(time.time())}_{safe}"
+
+        # Configurar transferencia multipart para grandes archivos
+        from boto3.s3.transfer import TransferConfig
+        mb = 1024 * 1024
+        config = TransferConfig(
+            multipart_threshold=8 * mb,
+            multipart_chunksize=8 * mb,
+            max_concurrency=4,
+            use_threads=True,
+        )
+
+        content_type = file.mimetype or 'application/octet-stream'
+
+        s3_client = boto3.client(
+            's3',
+            endpoint_url='https://prueba-minio.1xrk3z.easypanel.host',
+            aws_access_key_id='l2jatniel',
+            aws_secret_access_key='04142312256',
+            config=Config(signature_version='s3v4'),
+            region_name='us-east-1'
+        )
+
+        s3_client.upload_fileobj(
+            Fileobj=file.stream,
+            Bucket=bucket,
+            Key=key,
+            ExtraArgs={'ContentType': content_type},
+            Config=config,
+        )
+
+        # Obtener ETag con head (opcional)
+        etag = None
+        try:
+            head = s3_client.head_object(Bucket=bucket, Key=key)
+            etag = head.get('ETag', '').strip('"')
+        except Exception:
+            pass
+
+        return jsonify({
+            'key': key,
+            'etag': etag,
+            'object_url': f"{os.environ.get('MINIO_PUBLIC_BASE', '').rstrip('/')}/{bucket}/{key}"
+        })
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 # Endpoint para subir archivos a MinIO

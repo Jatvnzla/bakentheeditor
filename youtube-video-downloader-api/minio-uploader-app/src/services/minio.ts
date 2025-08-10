@@ -65,10 +65,32 @@ export const uploadToMinio = async (
   onProgress?: (progress: number) => void
 ): Promise<string> => {
   try {
+    // Si el archivo es muy grande, podemos optar por subir vía backend directamente
+    const FIFTY_MB = 50 * 1024 * 1024;
+    const API_URL = (import.meta as any).env?.VITE_API_URL || '/api';
+    if (file.size > FIFTY_MB) {
+      if (onProgress) onProgress(1);
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('bucket', config.bucket);
+      fd.append('path', config.uploadPath);
+      const resp = await fetch(`${API_URL}/v1/minio/upload`, {
+        method: 'POST',
+        body: fd,
+      });
+      if (!resp.ok) {
+        let msg = `Fallo upload servidor: ${resp.status}`;
+        try { const j = await resp.json(); msg = j.error || msg; } catch {}
+        throw new Error(msg);
+      }
+      const data = await resp.json();
+      if (onProgress) onProgress(100);
+      return data.object_url as string;
+    }
+
     if (onProgress) onProgress(5);
 
     // 1) Solicitar URL firmada al backend
-    const API_URL = (import.meta as any).env?.VITE_API_URL || '/api';
     const presignRes = await fetch(`${API_URL}/v1/minio/presign`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -138,7 +160,30 @@ export const uploadToMinio = async (
     return object_url;
   } catch (error) {
     console.error('Error al subir archivo a MinIO (presigned):', error);
-    throw error;
+    // Fallback: intentar subida vía backend
+    try {
+      if (onProgress) onProgress(1);
+      const API_URL = (import.meta as any).env?.VITE_API_URL || '/api';
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('bucket', config.bucket);
+      fd.append('path', config.uploadPath);
+      const resp = await fetch(`${API_URL}/v1/minio/upload`, {
+        method: 'POST',
+        body: fd,
+      });
+      if (!resp.ok) {
+        let msg = `Fallo upload servidor: ${resp.status}`;
+        try { const j = await resp.json(); msg = j.error || msg; } catch {}
+        throw new Error(msg);
+      }
+      const data = await resp.json();
+      if (onProgress) onProgress(100);
+      return data.object_url as string;
+    } catch (e2) {
+      console.error('Fallback server-side upload también falló:', e2);
+      throw e2;
+    }
   }
 };
 
