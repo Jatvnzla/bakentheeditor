@@ -10,7 +10,7 @@ export const minioConfig: MinioConfig = {
   accessKey: 'l2jatniel',
   secretKey: '04142312256',
   bucket: 'ciberfobia',
-  uploadPath: 'videosYotube' // Ruta por defecto para subir archivos
+  uploadPath: 'uploads' // Prefijo habilitado para escritura anónima
 };
 
 // Crear un cliente S3 para interactuar con MinIO
@@ -67,36 +67,18 @@ export const uploadToMinio = async (
   try {
     if (onProgress) onProgress(5);
 
-    // 1) Solicitar URL firmada al backend
-    const API_URL = (import.meta as any).env?.VITE_API_URL || '/api';
-    const presignRes = await fetch(`${API_URL}/v1/minio/presign`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        filename: file.name,
-        content_type: file.type || 'application/octet-stream',
-        bucket: config.bucket,
-        path: config.uploadPath,
-      }),
-    });
-    if (!presignRes.ok) {
-      let msg = 'No se pudo obtener URL firmada';
-      try { const e = await presignRes.json(); msg = e.error || msg; } catch {}
-      throw new Error(msg);
-    }
-    const { url, object_url } = await presignRes.json();
+    // Construir clave de objeto bajo el prefijo permitido
+    const prefix = (config.uploadPath || '').replace(/^\/+|\/+$/g, '');
+    const uniqueName = `${typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Date.now()}-${file.name}`;
+    const objectKey = prefix ? `${prefix}/${uniqueName}` : uniqueName;
 
-    // Reescribir al proxy del backend para evitar CORS
-    const baseApi = (import.meta as any).env?.VITE_API_URL || '/api';
-    const proxiedUrl = url.replace(
-      /^https?:\/\/prueba-minio\.1xrk3z\.easypanel\.host\//,
-      `${baseApi}/minio-proxy/`
-    );
+    // URL pública estilo path para MinIO
+    const objectUrl = `https://${config.endPoint}/${config.bucket}/${encodeURIComponent(objectKey)}`;
 
-    // 2) Subir directo a MinIO usando PUT y XHR para progreso real
+    // Subida directa con XHR (progreso y timeout)
     await new Promise<void>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      xhr.open('PUT', proxiedUrl);
+      xhr.open('PUT', objectUrl, true);
       xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
       xhr.timeout = 1000 * 60 * 20; // 20 minutos
 
@@ -120,9 +102,9 @@ export const uploadToMinio = async (
       xhr.send(file);
     });
 
-    return object_url;
+    return objectUrl;
   } catch (error) {
-    console.error('Error al subir archivo a MinIO (presigned):', error);
+    console.error('Error al subir archivo a MinIO (direct PUT):', error);
     throw error;
   }
 };
