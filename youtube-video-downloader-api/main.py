@@ -406,17 +406,39 @@ def minio_proxy(subpath):
 
     # URL base de MinIO
     minio_base = 'https://prueba-minio.1xrk3z.easypanel.host'
-    # Importante: preservar la query string EXACTA para SigV4
-    raw_qs = request.query_string.decode('utf-8')
-    target_url = f"{minio_base}/{subpath}"
-    if raw_qs:
-        target_url = f"{target_url}?{raw_qs}"
+    # Construir path RAW para no romper la firma (evitar decodificación del servidor)
+    raw_uri = request.environ.get('RAW_URI') or request.environ.get('REQUEST_URI')
+    raw_path = None
+    if raw_uri:
+        # raw_uri incluye path + ?query. Extraer path+qs después de /minio-proxy/
+        # Considerar que el frontend puede anteponer /api
+        for prefix in ('/api/minio-proxy/', '/minio-proxy/'):
+            idx = raw_uri.find(prefix)
+            if idx != -1:
+                raw_path = raw_uri[idx + len(prefix):]
+                break
+    if raw_path is None:
+        # Fallback: usar subpath (decodificado) + query string cruda
+        raw_qs = request.query_string.decode('utf-8')
+        target_url = f"{minio_base}/{subpath}"
+        if raw_qs:
+            target_url = f"{target_url}?{raw_qs}"
+    else:
+        # raw_path ya contiene "bucket/key..." y posiblemente "?..." al final
+        # Si no trae ?, agregamos la query cruda
+        if '?' in raw_path:
+            target_url = f"{minio_base}/{raw_path}"
+        else:
+            raw_qs = request.query_string.decode('utf-8')
+            target_url = f"{minio_base}/{raw_path}"
+            if raw_qs:
+                target_url = f"{target_url}?{raw_qs}"
 
     # Construir headers permitidos a reenviar
     fwd_headers = {}
     allow_list = [
         'Content-Type', 'Authorization', 'x-amz-acl', 'x-amz-content-sha256',
-        'x-amz-date', 'x-amz-security-token', 'Content-MD5'
+        'x-amz-date', 'x-amz-security-token', 'Content-MD5', 'Content-Length', 'Expect'
     ]
     for h in allow_list:
         v = request.headers.get(h)
@@ -427,7 +449,8 @@ def minio_proxy(subpath):
     try:
         upstream = requests.put(
             target_url,
-            data=request.get_data(),
+            # Enviar el cuerpo como stream para evitar cargar todo en memoria
+            data=request.stream,
             headers=fwd_headers,
             timeout=3600
         )
@@ -435,6 +458,11 @@ def minio_proxy(subpath):
         return jsonify({"error": f"Proxy error: {str(e)}"}), 502
 
     # Construir respuesta Flask con headers importantes de MinIO
+    if upstream.status_code >= 400:
+        try:
+            logger.error(f"MinIO error {upstream.status_code}: {upstream.text[:500]}")
+        except Exception:
+            pass
     resp = make_response(upstream.content, upstream.status_code)
     resp.headers['Content-Type'] = upstream.headers.get('Content-Type', 'application/octet-stream')
     for h in ['ETag', 'x-amz-request-id', 'x-amz-version-id']:

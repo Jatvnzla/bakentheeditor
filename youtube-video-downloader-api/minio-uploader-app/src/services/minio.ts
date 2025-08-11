@@ -72,8 +72,9 @@ export const uploadToMinio = async (
     const uniqueName = `${typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Date.now()}-${file.name}`;
     const objectKey = prefix ? `${prefix}/${uniqueName}` : uniqueName;
 
-    // URL pública estilo path para MinIO
-    const objectUrl = `https://${config.endPoint}/${config.bucket}/${encodeURIComponent(objectKey)}`;
+    // URL pública estilo path para MinIO (codificar por segmentos, no las barras)
+    const encodedKey = objectKey.split('/').map(encodeURIComponent).join('/');
+    const objectUrl = `https://${config.endPoint}/${config.bucket}/${encodedKey}`;
 
     // Subida directa con XHR (progreso y timeout)
     await new Promise<void>((resolve, reject) => {
