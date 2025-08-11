@@ -406,7 +406,11 @@ def minio_proxy(subpath):
 
     # URL base de MinIO
     minio_base = 'https://prueba-minio.1xrk3z.easypanel.host'
+    # Importante: preservar la query string EXACTA para SigV4
+    raw_qs = request.query_string.decode('utf-8')
     target_url = f"{minio_base}/{subpath}"
+    if raw_qs:
+        target_url = f"{target_url}?{raw_qs}"
 
     # Construir headers permitidos a reenviar
     fwd_headers = {}
@@ -423,7 +427,6 @@ def minio_proxy(subpath):
     try:
         upstream = requests.put(
             target_url,
-            params=request.args,
             data=request.get_data(),
             headers=fwd_headers,
             timeout=3600
