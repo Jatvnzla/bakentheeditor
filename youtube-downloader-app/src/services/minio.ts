@@ -10,7 +10,7 @@ export const minioConfig: MinioConfig = {
   accessKey: 'l2jatniel',
   secretKey: '04142312256',
   bucket: 'ciberfobia',
-  uploadPath: 'videosYotube' // Ruta específica para subir los videos de YouTube
+  uploadPath: 'uploads' // Prefijo habilitado para escritura anónima
 };
 
 export const createS3Client = (config: MinioConfig = minioConfig) => {
@@ -71,66 +71,46 @@ export const uploadToMinio = async (
   onProgress?: (progress: number) => void
 ): Promise<string> => {
   try {
-    // Iniciar con un pequeño progreso para indicar que la carga comenzó
-    if (onProgress) {
-      onProgress(5);
-    }
-    
-    // Crear un FormData para enviar el archivo al backend
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('bucket', config.bucket);
-    formData.append('path', config.uploadPath);
-    
-    // Configurar el progreso simulado
-    let progressInterval: ReturnType<typeof setInterval> | null = null;
-    if (onProgress) {
-      const totalSize = file.size;
-      let progress = 5;
-      
-      progressInterval = setInterval(() => {
-        // Incremento variable basado en el tamaño del archivo
-        const increment = Math.max(Math.min(5, 100 / (totalSize / (5 * 1024 * 1024))), 1);
-        progress += increment;
-        
-        if (progress >= 95) { // Reservar el último 5% para la confirmación
-          if (progressInterval) {
-            clearInterval(progressInterval);
-            progressInterval = null;
-          }
-          progress = 95;
+    if (onProgress) onProgress(5);
+
+    // Construir clave bajo prefijo permitido
+    const prefix = (config.uploadPath || '').replace(/^\/+|\/+$/g, '');
+    const uniqueName = `${typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Date.now()}-${file.name}`;
+    const objectKey = prefix ? `${prefix}/${uniqueName}` : uniqueName;
+
+    // URL pública estilo path
+    const objectUrl = `https://${config.endPoint}/${config.bucket}/${encodeURIComponent(objectKey)}`;
+
+    // PUT directo con XHR (progreso real)
+    await new Promise<void>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('PUT', objectUrl, true);
+      xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+      xhr.timeout = 1000 * 60 * 20; // 20 minutos
+
+      xhr.upload.onprogress = (evt) => {
+        if (!onProgress) return;
+        if (evt.lengthComputable) {
+          const p = Math.min(99, Math.round((evt.loaded / evt.total) * 100));
+          onProgress(p);
         }
-        onProgress(progress);
-      }, 300);
-    }
-    
-    // Enviar el archivo al backend para que lo suba a MinIO
-    const response = await fetch('http://localhost:5000/upload_to_minio', {
-      method: 'POST',
-      body: formData,
-      // No es necesario especificar Content-Type, fetch lo establece automáticamente con FormData
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          if (onProgress) onProgress(100);
+          resolve();
+        } else {
+          reject(new Error(`Error PUT MinIO: ${xhr.status} ${xhr.statusText}`));
+        }
+      };
+      xhr.onerror = () => reject(new Error('Fallo de red durante la subida'));
+      xhr.ontimeout = () => reject(new Error('Timeout en la subida'));
+      xhr.send(file);
     });
-    
-    // Limpiar el intervalo de progreso
-    if (progressInterval) {
-      clearInterval(progressInterval);
-    }
-    
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Error al subir archivo');
-    }
-    
-    const data = await response.json();
-    
-    // Actualizar al 100% cuando se complete
-    if (onProgress) {
-      onProgress(100);
-    }
-    
-    return data.url;
+
+    return objectUrl;
   } catch (error) {
-    console.error('Error al subir archivo a MinIO:', error);
+    console.error('Error al subir archivo a MinIO (direct PUT):', error);
     throw error;
   }
 };
