@@ -13,6 +13,7 @@ from pytube import YouTube
 from pytube.exceptions import PytubeError
 from urllib.parse import urlparse, parse_qs
 from rapid_api_handler import download_best_quality, download_specific_quality
+import requests
 
 app = Flask(__name__)
 
@@ -388,6 +389,55 @@ def presign_minio_put():
     except Exception as e:
         logger.exception('Error al generar URL firmada de MinIO')
         return jsonify({'error': str(e)}), 500
+
+# Flask proxy endpoint para MinIO
+@app.route('/minio-proxy/<path:subpath>', methods=['PUT', 'OPTIONS'])
+def minio_proxy(subpath):
+    # Preflight CORS
+    if request.method == 'OPTIONS':
+        resp = make_response('', 204)
+        origin = request.headers.get('Origin', '')
+        resp.headers['Access-Control-Allow-Origin'] = origin if origin in allowed_origins else 'https://prueba-fonten.1xrk3z.easypanel.host'
+        resp.headers['Vary'] = 'Origin'
+        resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, OPTIONS'
+        resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+        resp.headers['Access-Control-Max-Age'] = '600'
+        return resp
+
+    # URL base de MinIO
+    minio_base = 'https://prueba-minio.1xrk3z.easypanel.host'
+    target_url = f"{minio_base}/{subpath}"
+
+    # Construir headers permitidos a reenviar
+    fwd_headers = {}
+    allow_list = [
+        'Content-Type', 'Authorization', 'x-amz-acl', 'x-amz-content-sha256',
+        'x-amz-date', 'x-amz-security-token', 'Content-MD5'
+    ]
+    for h in allow_list:
+        v = request.headers.get(h)
+        if v:
+            fwd_headers[h] = v
+
+    # Reenviar petición PUT incluyendo query params
+    try:
+        upstream = requests.put(
+            target_url,
+            params=request.args,
+            data=request.get_data(),
+            headers=fwd_headers,
+            timeout=3600
+        )
+    except requests.RequestException as e:
+        return jsonify({"error": f"Proxy error: {str(e)}"}), 502
+
+    # Construir respuesta Flask con headers importantes de MinIO
+    resp = make_response(upstream.content, upstream.status_code)
+    resp.headers['Content-Type'] = upstream.headers.get('Content-Type', 'application/octet-stream')
+    for h in ['ETag', 'x-amz-request-id', 'x-amz-version-id']:
+        if h in upstream.headers:
+            resp.headers[h] = upstream.headers[h]
+    return resp
 
 # Endpoint para subir archivos a MinIO
 @app.route('/upload_to_minio', methods=['POST', 'OPTIONS'])

@@ -86,10 +86,11 @@ export const uploadToMinio = async (
     }
     const { url, object_url } = await presignRes.json();
 
-    // Reescribir a proxy local para evitar CORS del navegador
+    // Reescribir al proxy del backend para evitar CORS
+    const baseApi = (import.meta as any).env?.VITE_API_URL || '/api';
     const proxiedUrl = url.replace(
       /^https?:\/\/prueba-minio\.1xrk3z\.easypanel\.host\//,
-      '/minio-proxy/'
+      `${baseApi}/minio-proxy/`
     );
 
     // 2) Subir directo a MinIO usando PUT y XHR para progreso real
