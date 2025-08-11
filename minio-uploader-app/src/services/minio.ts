@@ -70,11 +70,25 @@ export const uploadToMinio = async (
       onProgress(5);
     }
     
-    // Crear un FormData para enviar el archivo al backend
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('bucket', config.bucket);
-    formData.append('path', config.uploadPath);
+    // Pedir URL presignada al backend (proxy) para subir vía PUT
+    const API_URL = (import.meta as any).env?.VITE_API_URL || '/api';
+    const presignRes = await fetch(`${API_URL}/v1/minio/presign`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        bucket: config.bucket,
+        object_name: `${config.uploadPath}/${Date.now()}_${file.name}`,
+        content_type: file.type || 'application/octet-stream',
+      }),
+    });
+    if (!presignRes.ok) {
+      throw new Error('No se pudo obtener URL presignada');
+    }
+    const { url, object_url } = await presignRes.json();
+    const proxiedUrl = url.replace(
+      /^https?:\/\/prueba-minio\.1xrk3z\.easypanel\.host\//,
+      `${API_URL}/minio-proxy/`
+    );
     
     // Configurar el progreso simulado
     let progressInterval: ReturnType<typeof setInterval> | null = null;
@@ -97,35 +111,30 @@ export const uploadToMinio = async (
         onProgress(progress);
       }, 300);
     }
-    
-    // URL del backend (configurable para desarrollo/producción)
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-    
-    // Enviar el archivo al backend para que lo suba a MinIO
-    const response = await fetch(`${API_URL}/upload_to_minio`, {
-      method: 'POST',
-      body: formData,
-      // No es necesario especificar Content-Type, fetch lo establece automáticamente con FormData
+
+    // Subir directo a MinIO vía proxy usando XHR para progreso
+    return await new Promise<string>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('PUT', proxiedUrl);
+      xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+      xhr.upload.addEventListener('progress', (e) => {
+        if (onProgress) {
+          const progress = Math.round((e.loaded / e.total) * 90) + 5;
+          onProgress(progress);
+        }
+      });
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(object_url);
+        } else {
+          reject(new Error('Error al subir archivo'));
+        }
+      };
+      xhr.onerror = () => {
+        reject(new Error('Error al subir archivo'));
+      };
+      xhr.send(file);
     });
-    
-    // Limpiar el intervalo de progreso
-    if (progressInterval) {
-      clearInterval(progressInterval);
-    }
-    
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Error al subir archivo');
-    }
-    
-    const data = await response.json();
-    
-    // Actualizar al 100% cuando se complete
-    if (onProgress) {
-      onProgress(100);
-    }
-    
-    return data.url;
   } catch (error) {
     console.error('Error al subir archivo a MinIO:', error);
     throw error;
