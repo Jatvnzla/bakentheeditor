@@ -66,51 +66,177 @@ export const listMinioObjects = async (
 };
 
 export const uploadToMinio = async (
-  file: File, 
+  file: File,
   config: MinioConfig = minioConfig,
   onProgress?: (progress: number) => void
 ): Promise<string> => {
   try {
-    if (onProgress) onProgress(5);
+    if (onProgress) onProgress(2);
 
     // Construir clave bajo prefijo permitido
     const prefix = (config.uploadPath || '').replace(/^\/+|\/+$/g, '');
     const uniqueName = `${typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Date.now()}-${file.name}`;
     const objectKey = prefix ? `${prefix}/${uniqueName}` : uniqueName;
 
-    // URL pública estilo path
-    const objectUrl = `https://${config.endPoint}/${config.bucket}/${encodeURIComponent(objectKey)}`;
+    // URL pública estilo path para MinIO (codificar por segmentos, no las barras)
+    const encodedKey = objectKey.split('/').map(encodeURIComponent).join('/');
+    const objectUrl = `https://${config.endPoint}/${config.bucket}/${encodedKey}`;
+    const bucketUrl = `https://${config.endPoint}/${config.bucket}`;
 
-    // PUT directo con XHR (progreso real)
-    await new Promise<void>((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open('PUT', objectUrl, true);
-      xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
-      xhr.timeout = 1000 * 60 * 20; // 20 minutos
-
-      xhr.upload.onprogress = (evt) => {
-        if (!onProgress) return;
-        if (evt.lengthComputable) {
-          const p = Math.min(99, Math.round((evt.loaded / evt.total) * 100));
-          onProgress(p);
-        }
-      };
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          if (onProgress) onProgress(100);
-          resolve();
-        } else {
-          reject(new Error(`Error PUT MinIO: ${xhr.status} ${xhr.statusText}`));
-        }
-      };
-      xhr.onerror = () => reject(new Error('Fallo de red durante la subida'));
-      xhr.ontimeout = () => reject(new Error('Timeout en la subida'));
-      xhr.send(file);
+    // Configuración de multipart upload
+    const PART_SIZE = 8 * 1024 * 1024; // 8MB por parte
+    const MAX_RETRIES = 3;
+    const totalParts = Math.ceil(file.size / PART_SIZE);
+    
+    // Iniciar multipart upload
+    const createMultipartUrl = `${bucketUrl}/${encodedKey}?uploads`;
+    let uploadId = '';
+    
+    if (onProgress) onProgress(5);
+    
+    // Paso 1: Crear multipart upload
+    const createResponse = await fetch(createMultipartUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream'
+      }
     });
-
+    
+    if (!createResponse.ok) {
+      throw new Error(`Error al iniciar multipart upload: ${createResponse.status} ${createResponse.statusText}`);
+    }
+    
+    const createXml = await createResponse.text();
+    const createParser = new DOMParser();
+    const createDoc = createParser.parseFromString(createXml, 'application/xml');
+    uploadId = createDoc.querySelector('UploadId')?.textContent || '';
+    
+    if (!uploadId) {
+      throw new Error('No se pudo obtener el ID de upload multipart');
+    }
+    
+    if (onProgress) onProgress(10);
+    
+    // Paso 2: Subir partes en paralelo con límite de concurrencia
+    const parts: {PartNumber: number, ETag: string}[] = [];
+    const MAX_CONCURRENT = 3;
+    let completedParts = 0;
+    let failedParts = 0;
+    
+    const uploadPart = async (partNumber: number, retryCount = 0): Promise<{PartNumber: number, ETag: string}> => {
+      const start = (partNumber - 1) * PART_SIZE;
+      const end = Math.min(start + PART_SIZE, file.size);
+      const chunk = file.slice(start, end);
+      
+      const partUrl = `${bucketUrl}/${encodedKey}?partNumber=${partNumber}&uploadId=${encodeURIComponent(uploadId)}`;
+      
+      try {
+        const response = await fetch(partUrl, {
+          method: 'PUT',
+          body: chunk,
+          headers: {
+            'Content-Type': 'application/octet-stream'
+          }
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Error al subir parte ${partNumber}: ${response.status}`);
+        }
+        
+        const etag = response.headers.get('ETag');
+        if (!etag) {
+          throw new Error(`No se recibió ETag para la parte ${partNumber}`);
+        }
+        
+        completedParts++;
+        if (onProgress) {
+          // Reservamos 10% para inicio y 10% para completar
+          const progressPercent = 10 + Math.floor((completedParts / totalParts) * 80);
+          onProgress(Math.min(90, progressPercent));
+        }
+        
+        return {
+          PartNumber: partNumber,
+          ETag: etag.replace(/\"/g, '') // Quitar comillas del ETag
+        };
+      } catch (error) {
+        if (retryCount < MAX_RETRIES) {
+          console.warn(`Reintentando parte ${partNumber}, intento ${retryCount + 1}`);
+          return uploadPart(partNumber, retryCount + 1);
+        }
+        failedParts++;
+        throw error;
+      }
+    };
+    
+    // Subir partes con concurrencia limitada
+    for (let i = 0; i < totalParts; i += MAX_CONCURRENT) {
+      const partPromises = [];
+      
+      for (let j = 0; j < MAX_CONCURRENT && i + j < totalParts; j++) {
+        const partNumber = i + j + 1; // PartNumber comienza en 1
+        partPromises.push(uploadPart(partNumber));
+      }
+      
+      const results = await Promise.allSettled(partPromises);
+      
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          parts.push(result.value);
+        } else {
+          console.error('Error en parte:', result.reason);
+          // Si hay demasiados fallos, abortamos
+          if (failedParts > totalParts * 0.1) { // Más del 10% de fallos
+            // Abortar multipart upload
+            await fetch(`${bucketUrl}/${encodedKey}?uploadId=${encodeURIComponent(uploadId)}`, {
+              method: 'DELETE'
+            }).catch(e => console.error('Error al abortar multipart upload:', e));
+            
+            throw new Error('Demasiados fallos en la subida multipart');
+          }
+        }
+      }
+    }
+    
+    if (parts.length !== totalParts) {
+      throw new Error(`No se completaron todas las partes: ${parts.length}/${totalParts}`);
+    }
+    
+    // Paso 3: Completar multipart upload
+    if (onProgress) onProgress(95);
+    
+    // Ordenar partes por número
+    parts.sort((a, b) => a.PartNumber - b.PartNumber);
+    
+    // Crear XML para completar
+    const completeXml = `
+      <CompleteMultipartUpload>
+        ${parts.map(part => `<Part>
+          <PartNumber>${part.PartNumber}</PartNumber>
+          <ETag>${part.ETag}</ETag>
+        </Part>`).join('')}
+      </CompleteMultipartUpload>
+    `;
+    
+    const completeUrl = `${bucketUrl}/${encodedKey}?uploadId=${encodeURIComponent(uploadId)}`;
+    const completeResponse = await fetch(completeUrl, {
+      method: 'POST',
+      body: completeXml,
+      headers: {
+        'Content-Type': 'application/xml'
+      }
+    });
+    
+    if (!completeResponse.ok) {
+      const errorText = await completeResponse.text();
+      throw new Error(`Error al completar multipart upload: ${completeResponse.status} ${errorText}`);
+    }
+    
+    if (onProgress) onProgress(100);
+    
     return objectUrl;
   } catch (error) {
-    console.error('Error al subir archivo a MinIO (direct PUT):', error);
+    console.error('Error al subir archivo a MinIO (multipart):', error);
     throw error;
   }
 };
