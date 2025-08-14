@@ -7,8 +7,11 @@ import { UserMenu } from './components/UserMenu';
 import { TelegramGate } from './components/TelegramGate';
 import '@mantine/core/styles.css';
 import '@mantine/dropzone/styles.css';
+import { useState } from 'react';
+import { SettingsModal } from './components/SettingsModal';
 
 function App() {
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const brand: [string, string, string, string, string, string, string, string, string, string] = [
     '#f9e9fd', // 0
     '#f3d2fb', // 1
@@ -40,7 +43,7 @@ function App() {
                 <Text size="xl" fw={700}>Uploader</Text>
                 <Group gap="xs">
                   <ThemeToggle />
-                  <UserMenu />
+                  <UserMenu onOpenSettings={() => setSettingsOpen(true)} />
                 </Group>
               </Group>
             </Box>
@@ -56,6 +59,7 @@ function App() {
             </Container>
           </AppShell.Main>
         </AppShell>
+        <SettingsModal opened={settingsOpen} onClose={() => setSettingsOpen(false)} />
       </AuthProvider>
     </MantineProvider>
   );
