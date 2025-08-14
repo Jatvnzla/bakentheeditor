@@ -8,10 +8,10 @@ import { TelegramGate } from './components/TelegramGate';
 import '@mantine/core/styles.css';
 import '@mantine/dropzone/styles.css';
 import { useState } from 'react';
-import { SettingsModal } from './components/SettingsModal';
+import { SettingsPage } from './components/SettingsPage';
 
 function App() {
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [page, setPage] = useState<'home' | 'settings'>('home');
   const brand: [string, string, string, string, string, string, string, string, string, string] = [
     '#f9e9fd', // 0
     '#f3d2fb', // 1
@@ -43,7 +43,7 @@ function App() {
                 <Text size="xl" fw={700}>Uploader</Text>
                 <Group gap="xs">
                   <ThemeToggle />
-                  <UserMenu onOpenSettings={() => setSettingsOpen(true)} />
+                  <UserMenu onOpenSettings={() => setPage('settings')} />
                 </Group>
               </Group>
             </Box>
@@ -51,15 +51,21 @@ function App() {
 
           <AppShell.Main>
             <Container fluid maw={960} mx="auto" py="xl" px="md">
-              <AuthGate>
-                <TelegramGate>
-                  <FileUploader />
-                </TelegramGate>
-              </AuthGate>
+              {page === 'settings' ? (
+                // Página de configuración accesible sin el gate, para que el usuario pueda completar su perfil
+                <AuthGate>
+                  <SettingsPage onBack={() => setPage('home')} />
+                </AuthGate>
+              ) : (
+                <AuthGate>
+                  <TelegramGate>
+                    <FileUploader />
+                  </TelegramGate>
+                </AuthGate>
+              )}
             </Container>
           </AppShell.Main>
         </AppShell>
-        <SettingsModal opened={settingsOpen} onClose={() => setSettingsOpen(false)} />
       </AuthProvider>
     </MantineProvider>
   );
