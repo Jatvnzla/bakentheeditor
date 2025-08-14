@@ -44,7 +44,7 @@ export function FileUploader() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null); // mantenido por compat, ya no se muestra
 
   const handleDrop = (acceptedFiles: FileWithPath[]) => {
     setFiles(acceptedFiles);
@@ -213,38 +213,15 @@ export function FileUploader() {
         </Alert>
       )}
       
-      {success && (
-        <Alert 
-          icon={<IconCheck size="1rem" />} 
-          title="Éxito" 
-          color="green" 
-          mb="md"
-        >
-          {success}
-        </Alert>
-      )}
+      {/* Éxito: se omite el Alert para evitar redundancia visual */}
       
       {uploadedFiles.length > 0 && (
         <Box mt="md">
           <Divider my="md" />
-          <Title order={4} mb="sm">Archivos subidos:</Title>
           <Stack>
             {uploadedFiles.map((file, index) => (
               <Box key={index}>
-                <Text size="sm" mb={5} fw={500}>{file.fileName}</Text>
-                <Text 
-                  component="a" 
-                  href={file.url} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  size="xs"
-                  c="dimmed"
-                  style={{ wordBreak: 'break-all' }}
-                >
-                  {file.url}
-                </Text>
-                
-                {/* Mostrar VideoProcessor automáticamente si es un video */}
+                {/* Solo mostramos el procesador para videos, sin nombre ni URL para minimizar ruido */}
                 {file.isVideo && (
                   <VideoProcessor
                     videoUrl={file.url}
