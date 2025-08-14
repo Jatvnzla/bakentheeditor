@@ -40,7 +40,14 @@ function App() {
           <AppShell.Header>
             <Box h="100%" px="md" className="glass" style={{ display: 'flex', alignItems: 'center' }}>
               <Group justify="space-between" style={{ width: '100%' }}>
-                <Text size="xl" fw={700}>Uploader</Text>
+                <Group gap={8} align="center">
+                  <img
+                    src="/brand/theeditor-logo.png"
+                    alt="theeditor logo"
+                    style={{ height: 28, display: 'block' }}
+                  />
+                  <Text size="xl" fw={700} style={{ display: 'none' }}>theeditor</Text>
+                </Group>
                 <Group gap="xs">
                   <ThemeToggle />
                   <UserMenu onOpenSettings={() => setPage('settings')} />
