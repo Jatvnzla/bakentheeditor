@@ -18,6 +18,7 @@ export function TelegramGate({ children }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [waEnabled, setWaEnabled] = useState(false);
   const [waValue, setWaValue] = useState(''); // with + prefix in UI, but saved without '+'
+  const [waError, setWaError] = useState<string | null>(null);
 
   const userDocRef = useMemo(() => (uid ? doc(db, 'users', uid) : null), [uid]);
 
@@ -53,10 +54,21 @@ export function TelegramGate({ children }: Props) {
     if (!trimmed) { setError('Ingresa tu ID de Telegram'); return; }
     setSaving(true);
     setError(null);
+    setWaError(null);
     try {
       // normalize WhatsApp: strip spaces and plus sign
       const waTrim = waValue.trim().replace(/\s+/g, '');
       const waStored = waTrim.startsWith('+') ? waTrim.slice(1) : waTrim;
+      // Validate only if enabled
+      if (waEnabled) {
+        // Accept digits length 8-15, with optional leading '+' in UI
+        const digitsOnly = waStored.replace(/\D/g, '');
+        if (digitsOnly.length < 8 || digitsOnly.length > 15) {
+          setWaError('Número inválido. Usa prefijo de país, 8-15 dígitos. Ej: +584140000000');
+          setSaving(false);
+          return;
+        }
+      }
       const payload: Record<string, any> = { id_telegram: trimmed, updatedAt: serverTimestamp() };
       payload.send_to_whatsapp = waEnabled;
       if (waStored) payload.whatsapp_number = waStored;
@@ -120,6 +132,7 @@ export function TelegramGate({ children }: Props) {
                       value={waValue}
                       onChange={(e) => setWaValue(e.currentTarget.value)}
                       disabled={saving}
+                      error={waError}
                     />
                   )}
                 </Stack>
