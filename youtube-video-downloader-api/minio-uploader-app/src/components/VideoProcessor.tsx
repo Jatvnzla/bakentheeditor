@@ -80,7 +80,7 @@ export function VideoProcessor({ videoUrl, fileName }: VideoProcessorProps) {
     }
   });
 
-  // Precargar chat_id desde Firestore para evitar pedirlo en UI
+  // Precargar chat_id y chat_Whatsapp desde Firestore para evitar pedirlo en UI
   useEffect(() => {
     let mounted = true;
     async function loadChatId() {
@@ -88,9 +88,16 @@ export function VideoProcessor({ videoUrl, fileName }: VideoProcessorProps) {
       try {
         const ref = doc(db, 'users', user.uid);
         const snap = await getDoc(ref);
-        const data = snap.data() as { id_telegram?: string } | undefined;
-        if (mounted && data?.id_telegram) {
+        const data = snap.data() as { id_telegram?: string; whatsapp_number?: string; send_to_whatsapp?: boolean } | undefined;
+        if (!mounted || !data) return;
+        if (data.id_telegram) {
           form.setFieldValue('chat_id', data.id_telegram);
+        }
+        if (data.send_to_whatsapp && data.whatsapp_number) {
+          form.setFieldValue('chat_Whatsapp', data.whatsapp_number);
+        } else {
+          // Ensure not set if disabled
+          form.setFieldValue('chat_Whatsapp', undefined as unknown as string);
         }
       } catch (e) {
         // No interrumpir UI; si falla, el usuario podría volver a intentarlo más tarde

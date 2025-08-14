@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Anchor, Button, Group, Paper, Stack, Text, TextInput } from '@mantine/core';
+import { Alert, Anchor, Button, Checkbox, Group, Paper, Stack, Text, TextInput } from '@mantine/core';
 import { IconAlertCircle, IconCheck } from '@tabler/icons-react';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../services/firebase';
@@ -16,6 +16,8 @@ export function TelegramGate({ children }: Props) {
   const [value, setValue] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [waEnabled, setWaEnabled] = useState(false);
+  const [waValue, setWaValue] = useState(''); // with + prefix in UI, but saved without '+'
 
   const userDocRef = useMemo(() => (uid ? doc(db, 'users', uid) : null), [uid]);
 
@@ -25,11 +27,13 @@ export function TelegramGate({ children }: Props) {
       if (!userDocRef) { setLoading(false); return; }
       try {
         const snap = await getDoc(userDocRef);
-        const data = snap.data() as { id_telegram?: string } | undefined;
+        const data = snap.data() as { id_telegram?: string; whatsapp_number?: string; send_to_whatsapp?: boolean } | undefined;
         const missing = !data?.id_telegram;
         if (mounted) {
           setPresent(missing);
           setLoading(false);
+          if (data?.send_to_whatsapp) setWaEnabled(true);
+          if (data?.whatsapp_number) setWaValue(`+${data.whatsapp_number}`);
         }
       } catch (e) {
         if (mounted) {
@@ -50,7 +54,13 @@ export function TelegramGate({ children }: Props) {
     setSaving(true);
     setError(null);
     try {
-      await setDoc(userDocRef, { id_telegram: trimmed, updatedAt: serverTimestamp() }, { merge: true });
+      // normalize WhatsApp: strip spaces and plus sign
+      const waTrim = waValue.trim().replace(/\s+/g, '');
+      const waStored = waTrim.startsWith('+') ? waTrim.slice(1) : waTrim;
+      const payload: Record<string, any> = { id_telegram: trimmed, updatedAt: serverTimestamp() };
+      payload.send_to_whatsapp = waEnabled;
+      if (waStored) payload.whatsapp_number = waStored;
+      await setDoc(userDocRef, payload, { merge: true });
       setPresent(false);
     } catch (e) {
       setError('No se pudo guardar. Intenta de nuevo.');
@@ -93,6 +103,26 @@ export function TelegramGate({ children }: Props) {
                   disabled={saving}
                   autoFocus
                 />
+
+                {/* WhatsApp optional */}
+                <Stack gap="xs">
+                  <Checkbox
+                    checked={waEnabled}
+                    onChange={(e) => setWaEnabled(e.currentTarget.checked)}
+                    label="Enviar también por WhatsApp (opcional)"
+                    disabled={saving}
+                  />
+                  {waEnabled && (
+                    <TextInput
+                      label="Número de WhatsApp"
+                      description="Incluye el prefijo del país. Ej: +584140000000"
+                      placeholder="+5841xxxxxxx"
+                      value={waValue}
+                      onChange={(e) => setWaValue(e.currentTarget.value)}
+                      disabled={saving}
+                    />
+                  )}
+                </Stack>
 
                 <Group justify="space-between" align="center">
                   <Anchor

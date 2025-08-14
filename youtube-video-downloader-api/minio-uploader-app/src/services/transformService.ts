@@ -13,6 +13,7 @@ export interface TransformParams {
   webhook_url: string;
   job_id: string;
   chat_id: string;
+  chat_Whatsapp?: string; // opcional: número E.164 sin '+'
   add_subtitles: boolean;
   language: string;
   subtitle_settings: {
@@ -62,7 +63,7 @@ export const defaultTransformParams: Omit<TransformParams, 'minio_object'> = {
   background_color: '#000000',
   webhook_url: WEBHOOK_URL,
   job_id: `job_${Date.now()}`,
-  chat_id: '', // Campo obligatorio - debe ser llenado por el usuario
+  chat_id: '', // Campo obligatorio - se precarga desde perfil
   add_subtitles: true,
   language: 'es',
   subtitle_settings: {
