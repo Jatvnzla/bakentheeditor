@@ -92,7 +92,7 @@ export function VideoProcessor({ videoUrl, fileName }: VideoProcessorProps) {
       try {
         const ref = doc(db, 'users', user.uid);
         const snap = await getDoc(ref);
-        const data = snap.data() as { id_telegram?: string; whatsapp_number?: string; send_to_whatsapp?: boolean } | undefined;
+        const data = snap.data() as { id_telegram?: string; whatsapp_number?: string; send_to_whatsapp?: boolean; webhook_url?: string } | undefined;
         if (!mounted || !data) return;
         if (data.id_telegram) {
           form.setFieldValue('chat_id', data.id_telegram);
@@ -167,7 +167,7 @@ export function VideoProcessor({ videoUrl, fileName }: VideoProcessorProps) {
       
       const result = await transformVideo(videoUrl, finalValues);
       setTransformResult(result);
-      setSuccess(`Video enviado para transformación. Job ID: ${result.job_id}`);
+      setSuccess(`Video enviado para transformación.`);
     } catch (error) {
       console.error('Error al transformar video:', error);
       
@@ -285,20 +285,14 @@ export function VideoProcessor({ videoUrl, fileName }: VideoProcessorProps) {
       <Collapse in={showSettings}>
         <Divider my="md" />
         <form onSubmit={form.onSubmit(handleTransform)}>
-          <Tabs defaultValue="general" mb="md" variant="pills" color="brand">
+          <Tabs defaultValue="basic" mb="md" variant="pills" color="brand">
             <Tabs.List>
-              <Tabs.Tab value="general" leftSection={<IconVideo size={16} />}>
-                General
-              </Tabs.Tab>
-              <Tabs.Tab value="subtitles" leftSection={<IconMessageCircle size={16} />}>
-                Subtítulos
-              </Tabs.Tab>
-              <Tabs.Tab value="advanced" leftSection={<IconPalette size={16} />}>
-                Avanzado
-              </Tabs.Tab>
+              <Tabs.Tab value="basic" leftSection={<IconVideo size={14} />}>Básico</Tabs.Tab>
+              <Tabs.Tab value="appearance" leftSection={<IconPalette size={14} />}>Apariencia</Tabs.Tab>
+              <Tabs.Tab value="subtitles" leftSection={<IconMessageCircle size={14} />}>Subtítulos</Tabs.Tab>
             </Tabs.List>
 
-            <Tabs.Panel value="general" pt="md">
+            <Tabs.Panel value="basic" pt="md">
               <Stack>
                 <NumberInput
                   label="Duración del segmento (minutos)"
@@ -483,21 +477,7 @@ export function VideoProcessor({ videoUrl, fileName }: VideoProcessorProps) {
               </Stack>
             </Tabs.Panel>
 
-            <Tabs.Panel value="advanced" pt="md">
-              <Stack>
-                <TextInput
-                  label="ID del trabajo"
-                  description="Identificador único para este trabajo"
-                  {...form.getInputProps('job_id')}
-                />
-
-                <TextInput
-                  label="URL del webhook"
-                  description="URL para recibir notificaciones de progreso"
-                  {...form.getInputProps('webhook_url')}
-                />
-              </Stack>
-            </Tabs.Panel>
+            {/* Avanzado eliminado: job_id es interno y webhook se toma del perfil si existe */}
           </Tabs>
 
           <Group justify="flex-end" mt="md">
@@ -549,7 +529,7 @@ export function VideoProcessor({ videoUrl, fileName }: VideoProcessorProps) {
           <Title order={4} mb="md">Estado de la Transformación</Title>
           
           <Group mb="md">
-            <Text><strong>Job ID:</strong> {transformResult.job_id}</Text>
+            {/* Job ID oculto para el usuario */}
             <Text><strong>Estado:</strong> {transformResult.status}</Text>
           </Group>
           
