@@ -122,7 +122,18 @@ export function SettingsModal({ opened, onClose }: SettingsModalProps) {
   };
 
   return (
-    <Modal opened={opened} onClose={onClose} title="Configuración" centered size="lg" radius="lg" className="glass">
+    <Modal
+      opened={opened}
+      onClose={onClose}
+      title="Configuración"
+      centered
+      size="lg"
+      radius="lg"
+      className="glass"
+      zIndex={4000}
+      overlayProps={{ opacity: 0.55, blur: 2 }}
+      keepMounted
+    >
       <Stack>
         {error && (
           <Alert icon={<IconAlertCircle size={16} />} color="red">{error}</Alert>
