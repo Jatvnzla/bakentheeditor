@@ -20,7 +20,8 @@
     "@tabler/icons-react": "^2.47.0",
     "react": "18.2.0",
     "react-dom": "18.2.0",
-    "serve": "^14.2.1"
+    "serve": "^14.2.1",
+    "firebase": "^10.12.2"
   },
   "devDependencies": {
     "@eslint/js": "^8.57.0",

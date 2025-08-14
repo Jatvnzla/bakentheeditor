@@ -1,27 +1,62 @@
-import { MantineProvider, Container, AppShell, Text, Box } from '@mantine/core';
+import { MantineProvider, Container, AppShell, Text, Box, Group } from '@mantine/core';
 import { FileUploader } from './components/FileUploader';
+import { ThemeToggle } from './components/ThemeToggle';
+import { AuthProvider } from './context/AuthContext';
+import { AuthGate } from './components/AuthGate';
+import { UserMenu } from './components/UserMenu';
+import { TelegramGate } from './components/TelegramGate';
 import '@mantine/core/styles.css';
 import '@mantine/dropzone/styles.css';
 
 function App() {
+  const brand: [string, string, string, string, string, string, string, string, string, string] = [
+    '#f9e9fd', // 0
+    '#f3d2fb', // 1
+    '#eaaef6', // 2
+    '#de86ee', // 3
+    '#cf66e3', // 4 -> close to color5
+    '#b24cc6', // 5 -> close to color4
+    '#8f3da1', // 6 -> between color3 & color4
+    '#6f327f', // 7 -> near color3
+    '#4d2c61', // 8 -> between color2 & color3
+    '#121d3f', // 9 -> color1
+  ];
+
   return (
-    <MantineProvider>
-      <AppShell
-        header={{ height: 60 }}
-        padding="md"
-      >
-        <AppShell.Header>
-          <Box h="100%" px="md" style={{ display: 'flex', alignItems: 'center' }}>
-            <Text size="xl" fw={700}>MinIO Uploader App</Text>
-          </Box>
-        </AppShell.Header>
-        
-        <AppShell.Main>
-          <Container size="md" py="xl">
-            <FileUploader />
-          </Container>
-        </AppShell.Main>
-      </AppShell>
+    <MantineProvider
+      defaultColorScheme="dark"
+      theme={{
+        primaryColor: 'brand',
+        colors: { brand },
+        fontFamily: 'system-ui, Avenir, Helvetica, Arial, sans-serif',
+        defaultRadius: 'md',
+      }}
+    >
+      <AuthProvider>
+        <AppShell header={{ height: 60 }} padding="md">
+          <AppShell.Header>
+            <Box h="100%" px="md" className="glass" style={{ display: 'flex', alignItems: 'center' }}>
+              <Group justify="space-between" style={{ width: '100%' }}>
+                <Text size="xl" fw={700}>Uploader</Text>
+                <Group gap="xs">
+                  <ThemeToggle />
+                  <UserMenu />
+                </Group>
+              </Group>
+            </Box>
+          </AppShell.Header>
+
+          <AppShell.Main>
+            <Container fluid maw={960} mx="auto" py="xl" px="md">
+              <AuthGate>
+                <TelegramGate>
+                  <FileUploader />
+                </TelegramGate>
+              </AuthGate>
+            </Container>
+          </AppShell.Main>
+        </AppShell>
+      </AuthProvider>
     </MantineProvider>
   );
 }

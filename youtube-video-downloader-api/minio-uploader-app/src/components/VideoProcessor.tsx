@@ -148,7 +148,7 @@ export function VideoProcessor({ videoUrl, fileName }: VideoProcessorProps) {
   };
 
   return (
-    <Paper p="md" withBorder mt="md">
+    <Paper p="lg" radius="lg" shadow="xl" withBorder={false} className="glass" mt="md">
       <Group justify="space-between" mb="md">
         <div>
           <Title order={3}>Procesar Video</Title>
@@ -158,6 +158,7 @@ export function VideoProcessor({ videoUrl, fileName }: VideoProcessorProps) {
         </div>
         <ActionIcon
           variant="light"
+          color="brand"
           size="lg"
           onClick={() => setShowSettings(!showSettings)}
           title={showSettings ? 'Ocultar configuración' : 'Mostrar configuración'}
@@ -204,6 +205,7 @@ export function VideoProcessor({ videoUrl, fileName }: VideoProcessorProps) {
       {/* Botón de transformación rápida */}
       <Group justify="center" mb="md">
         <Button
+          color="brand"
           size="lg"
           leftSection={<IconWand size={20} />}
           onClick={handleQuickTransform}
@@ -218,7 +220,7 @@ export function VideoProcessor({ videoUrl, fileName }: VideoProcessorProps) {
       <Collapse in={showSettings}>
         <Divider my="md" />
         <form onSubmit={form.onSubmit(handleTransform)}>
-          <Tabs defaultValue="general" mb="md">
+          <Tabs defaultValue="general" mb="md" variant="pills" color="brand">
             <Tabs.List>
               <Tabs.Tab value="general" leftSection={<IconVideo size={16} />}>
                 General

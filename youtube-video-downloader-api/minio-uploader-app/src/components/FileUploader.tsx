@@ -116,8 +116,8 @@ export function FileUploader() {
   };
 
   return (
-    <Paper p="md" withBorder>
-      <Title order={2} mb="md">Subir Archivos a MinIO</Title>
+    <Paper p="lg" radius="lg" shadow="xl" withBorder={false} className="glass">
+      <Title order={3} mb="sm">Subir archivos</Title>
       
       <Dropzone
         onDrop={(files) => {
@@ -161,11 +161,11 @@ export function FileUploader() {
           </Dropzone.Idle>
 
           <div>
-            <Text size="xl" inline>
-              Arrastra archivos aquí o haz clic para seleccionar
+            <Text size="lg" inline>
+              Arrastra archivos o haz clic para seleccionar
             </Text>
-            <Text size="sm" c="dimmed" inline mt={7}>
-              Sube cualquier tipo de archivo sin límite de tamaño
+            <Text size="xs" c="dimmed" inline mt={5}>
+              Cualquier tipo, sin límite
             </Text>
           </div>
         </Group>
@@ -173,7 +173,7 @@ export function FileUploader() {
       
       {files.length > 0 && (
         <Box mb="md">
-          <Text fw={500} mb={5}>Archivos seleccionados:</Text>
+          <Text fw={500} mb={5}>Seleccionados</Text>
           <Stack>
             {files.map((file, index) => (
               <Text key={index} size="sm">
@@ -183,12 +183,13 @@ export function FileUploader() {
           </Stack>
           
           <Group justify="flex-end" mt="md">
-            <Button 
-              onClick={handleUpload} 
+            <Button
+              color="brand"
+              onClick={handleUpload}
               loading={uploading}
               leftSection={<IconUpload size={16} />}
             >
-              Subir a MinIO
+              Subir
             </Button>
           </Group>
         </Box>

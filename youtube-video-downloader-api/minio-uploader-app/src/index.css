@@ -2,10 +2,21 @@
   font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
+  /* Brand palette provided by user */
+  --color1: #121d3f; /* deep navy */
+  --color2: #313162; /* slate */
+  --color3: #644c8c; /* purple */
+  --color4: #a865bc; /* lavender */
+  --color5: #f17de6; /* pink */
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
+  /* Semantic tokens (light by default) */
+  --bg: #f6f7fb; /* softened white */
+  --bg-soft: #eef0f6;
+  --text: #1a1b1e;
+  --muted: #667085;
+  --primary: var(--color3);
+  --primary-contrast: #ffffff;
+  --ring: color-mix(in oklab, var(--primary) 40%, transparent);
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -15,11 +26,11 @@
 
 a {
   font-weight: 500;
-  color: #646cff;
+  color: var(--primary);
   text-decoration: inherit;
 }
 a:hover {
-  color: #535bf2;
+  color: color-mix(in oklab, var(--primary) 80%, black 0%);
 }
 
 body {
@@ -28,6 +39,9 @@ body {
   place-items: center;
   min-width: 320px;
   min-height: 100vh;
+  color: var(--text);
+  background: radial-gradient(1200px 800px at 10% 10%, var(--bg-soft), var(--bg))
+    , radial-gradient(800px 600px at 90% 0%, color-mix(in oklab, var(--primary) 6%, var(--bg)), var(--bg));
 }
 
 h1 {
@@ -42,27 +56,99 @@ button {
   font-size: 1em;
   font-weight: 500;
   font-family: inherit;
-  background-color: #1a1a1a;
+  background-color: var(--primary);
+  color: var(--primary-contrast);
   cursor: pointer;
-  transition: border-color 0.25s;
+  transition: border-color 0.25s, transform .05s ease;
 }
 button:hover {
-  border-color: #646cff;
+  border-color: color-mix(in oklab, var(--primary) 60%, black 0%);
 }
 button:focus,
 button:focus-visible {
   outline: 4px auto -webkit-focus-ring-color;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
+/* Dark mode using Mantine attribute */
+[data-mantine-color-scheme='dark'] {
+  --bg: #0e0f14;
+  --bg-soft: #0f1726;
+  --text: #edf2f7;
+  --muted: #98a2b3;
+  --primary: var(--color4);
+  --primary-contrast: #0b0c10;
+  --ring: color-mix(in oklab, var(--primary) 35%, transparent);
+}
+
+/* App container improvements */
+#root {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+/* Cards and elevated surfaces */
+.card {
+  padding: 1.25rem;
+  border-radius: 14px;
+  border: 1px solid color-mix(in oklab, var(--text) 6%, transparent);
+  background: color-mix(in oklab, var(--bg) 88%, var(--bg-soft));
+  box-shadow: 0 10px 30px rgba(0,0,0,.04);
+}
+
+/* Subtle text */
+.muted { color: var(--muted); }
+
+/* Glassmorphism utility */
+.glass {
+  background: color-mix(in oklab, var(--bg) 40%, transparent);
+  border: 1px solid color-mix(in oklab, var(--text) 10%, transparent);
+  box-shadow: 0 10px 40px rgba(0,0,0,.15);
+  backdrop-filter: blur(12px) saturate(130%);
+  -webkit-backdrop-filter: blur(12px) saturate(130%);
+  border-radius: 16px;
+}
+
+/* Ensure Mantine Paper uses glass styles */
+.mantine-Paper-root.glass {
+  background: rgba(255, 255, 255, 0.5) !important; /* light fallback */
+  border: 1px solid rgba(0, 0, 0, 0.06) !important;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18) !important;
+  backdrop-filter: blur(16px) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(160%) !important;
+}
+
+[data-mantine-color-scheme='dark'] .mantine-Paper-root.glass {
+  background: rgba(18, 29, 63, 0.28) !important; /* based on color1 */
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 12px 50px rgba(0, 0, 0, 0.35) !important;
+}
+
+/* Responsive tweaks */
+@media (max-width: 600px) {
+  .mantine-Container-root {
+    padding-left: var(--mantine-spacing-md) !important;
+    padding-right: var(--mantine-spacing-md) !important;
   }
-  a:hover {
-    color: #747bff;
+  .mantine-Paper-root.glass {
+    padding: var(--mantine-spacing-md) !important;
+    border-radius: 12px !important;
   }
-  button {
-    background-color: #f9f9f9;
+  .mantine-Dropzone-root {
+    padding: var(--mantine-spacing-md) !important;
+  }
+  .mantine-Title-root[data-order="2"],
+  .mantine-Title-root[data-order="3"] {
+    --title-fz: clamp(18px, 4.5vw, var(--mantine-h3-font-size));
   }
 }
+
+/* Prevent horizontal scroll due to long text */
+body, #root { max-width: 100vw; overflow-x: hidden; }
+
+/* Utilities for the provided palette */
+.color1 { color: var(--color1); }
+.color2 { color: var(--color2); }
+.color3 { color: var(--color3); }
+.color4 { color: var(--color4); }
+.color5 { color: var(--color5); }
