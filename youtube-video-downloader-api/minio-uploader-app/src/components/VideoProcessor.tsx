@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Paper,
   Title,
@@ -53,6 +53,9 @@ import {
   type TransformResponse
 } from '../services/transformService';
 import { uploadToMinio, minioConfig } from '../services/minio';
+import { useAuth } from '../context/AuthContext';
+import { db } from '../services/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
 interface VideoProcessorProps {
   videoUrl: string;
@@ -68,6 +71,7 @@ export function VideoProcessor({ videoUrl, fileName }: VideoProcessorProps) {
   const [backgroundImageUrl, setBackgroundImageUrl] = useState<string | null>('');
   const [success, setSuccess] = useState<string | null>(null);
   const [transformResult, setTransformResult] = useState<TransformResponse | null>(null);
+  const { user } = useAuth();
 
   const form = useForm<Omit<TransformParams, 'minio_object'>>({
     initialValues: {
@@ -76,10 +80,31 @@ export function VideoProcessor({ videoUrl, fileName }: VideoProcessorProps) {
     }
   });
 
+  // Precargar chat_id desde Firestore para evitar pedirlo en UI
+  useEffect(() => {
+    let mounted = true;
+    async function loadChatId() {
+      if (!user?.uid) return;
+      try {
+        const ref = doc(db, 'users', user.uid);
+        const snap = await getDoc(ref);
+        const data = snap.data() as { id_telegram?: string } | undefined;
+        if (mounted && data?.id_telegram) {
+          form.setFieldValue('chat_id', data.id_telegram);
+        }
+      } catch (e) {
+        // No interrumpir UI; si falla, el usuario podría volver a intentarlo más tarde
+        console.warn('No se pudo cargar id_telegram del perfil', e);
+      }
+    }
+    loadChatId();
+    return () => { mounted = false; };
+  }, [user?.uid]);
+
   const handleTransform = async (values: Omit<TransformParams, 'minio_object'>) => {
-    // Validar que chat_id no esté vacío
+    // Validar que chat_id esté presente (debería venir precargado desde Firestore)
     if (!values.chat_id || values.chat_id.trim() === '') {
-      setError('El Chat ID de Telegram es obligatorio. Sin este campo, el material terminado no se puede enviar.');
+      setError('Falta tu Chat ID de Telegram en el perfil. Vuelve a iniciar sesión o completa tu perfil.');
       return;
     }
 
@@ -167,39 +192,17 @@ export function VideoProcessor({ videoUrl, fileName }: VideoProcessorProps) {
         </ActionIcon>
       </Group>
 
-      {/* Vista previa del video */}
+      {/* Vista previa del video y nota de chat_id */}
       <Box mb="md">
         <Text size="sm" mb="xs" fw={500}>Vista previa:</Text>
         <Text size="xs" c="dimmed" style={{ wordBreak: 'break-all' }}>
           {videoUrl}
         </Text>
-      </Box>
-
-      {/* Campo Chat ID obligatorio */}
-      <Box mb="md">
-        <TextInput
-          label="Chat ID de Telegram (Obligatorio)"
-          placeholder="Ejemplo: 123456789"
-          description={
-            <Text size="xs">
-              ¿No tienes tu Chat ID? Visítanos en{' '}
-              <Text
-                component="a"
-                href="https://t.me/Elpublicadordeinstabot"
-                target="_blank"
-                rel="noopener noreferrer"
-                c="blue"
-                td="underline"
-              >
-                @Elpublicadordeinstabot
-              </Text>
-              {' '}y escribe "ID CHAT" para recibirlo.
-            </Text>
-          }
-          required
-          error={!form.values.chat_id && error ? 'Este campo es obligatorio' : null}
-          {...form.getInputProps('chat_id')}
-        />
+        {form.values.chat_id && (
+          <Text size="xs" c="dimmed" mt="xs">
+            Se usará tu Chat ID de Telegram del perfil: {form.values.chat_id}
+          </Text>
+        )}
       </Box>
 
       {/* Botón de transformación rápida */}
