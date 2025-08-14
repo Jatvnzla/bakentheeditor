@@ -55,7 +55,7 @@ import {
 import { uploadToMinio, minioConfig } from '../services/minio';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../services/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 interface VideoProcessorProps {
   videoUrl: string;
@@ -72,6 +72,10 @@ export function VideoProcessor({ videoUrl, fileName }: VideoProcessorProps) {
   const [success, setSuccess] = useState<string | null>(null);
   const [transformResult, setTransformResult] = useState<TransformResponse | null>(null);
   const { user } = useAuth();
+  // WhatsApp per-job controls
+  const [sendToWhatsapp, setSendToWhatsapp] = useState(false);
+  const [waNumber, setWaNumber] = useState(''); // UI with '+'
+  const [waFieldError, setWaFieldError] = useState<string | null>(null);
 
   const form = useForm<Omit<TransformParams, 'minio_object'>>({
     initialValues: {
@@ -93,10 +97,14 @@ export function VideoProcessor({ videoUrl, fileName }: VideoProcessorProps) {
         if (data.id_telegram) {
           form.setFieldValue('chat_id', data.id_telegram);
         }
-        if (data.send_to_whatsapp && data.whatsapp_number) {
+        if (data.whatsapp_number) {
+          setWaNumber(`+${data.whatsapp_number}`);
+        }
+        const enabled = !!(data.send_to_whatsapp && data.whatsapp_number);
+        setSendToWhatsapp(enabled);
+        if (enabled) {
           form.setFieldValue('chat_Whatsapp', data.whatsapp_number);
         } else {
-          // Ensure not set if disabled
           form.setFieldValue('chat_Whatsapp', undefined as unknown as string);
         }
       } catch (e) {
@@ -121,6 +129,36 @@ export function VideoProcessor({ videoUrl, fileName }: VideoProcessorProps) {
     setTransformResult(null);
 
     try {
+      // WhatsApp validation and persistence if enabled
+      if (sendToWhatsapp) {
+        setWaFieldError(null);
+        const waTrim = waNumber.trim().replace(/\s+/g, '');
+        const waStored = waTrim.startsWith('+') ? waTrim.slice(1) : waTrim;
+        const digitsOnly = waStored.replace(/\D/g, '');
+        if (digitsOnly.length < 8 || digitsOnly.length > 15) {
+          setWaFieldError('Número inválido. Usa prefijo país, 8-15 dígitos. Ej: +584140000000');
+          setProcessing(false);
+          return;
+        }
+        form.setFieldValue('chat_Whatsapp', digitsOnly);
+        // Persist to profile so futuras sesiones lo carguen
+        if (user?.uid) {
+          await setDoc(doc(db, 'users', user.uid), {
+            whatsapp_number: digitsOnly,
+            send_to_whatsapp: true,
+            updatedAt: serverTimestamp()
+          }, { merge: true });
+        }
+      } else {
+        form.setFieldValue('chat_Whatsapp', undefined as unknown as string);
+        if (user?.uid) {
+          await setDoc(doc(db, 'users', user.uid), {
+            send_to_whatsapp: false,
+            updatedAt: serverTimestamp()
+          }, { merge: true });
+        }
+      }
+
       // Si hay imagen de fondo subida, usarla en lugar del color
       const finalValues = {
         ...values,
@@ -210,6 +248,23 @@ export function VideoProcessor({ videoUrl, fileName }: VideoProcessorProps) {
             Se usará tu Chat ID de Telegram del perfil: {form.values.chat_id}
           </Text>
         )}
+        {/* WhatsApp per-job toggle and number input */}
+        <Group mt="xs" align="flex-end" gap="md">
+          <Switch
+            checked={sendToWhatsapp}
+            onChange={(e) => setSendToWhatsapp(e.currentTarget.checked)}
+            label="Enviar también a WhatsApp"
+          />
+          {sendToWhatsapp && (
+            <TextInput
+              label="Número WhatsApp"
+              placeholder="+584140000000"
+              value={waNumber}
+              onChange={(e) => setWaNumber(e.currentTarget.value)}
+              error={waFieldError}
+            />
+          )}
+        </Group>
       </Box>
 
       {/* Botón de transformación rápida */}
