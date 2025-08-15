@@ -51,8 +51,9 @@ export interface TransformResponse {
 }
 
 // Configuración de la API
-// Usar proxy local para evitar problemas de CORS
-const API_URL = '/api/v1/video/transform-to-vertical';
+// Base desde variables de entorno para producción (Opción A: dominio absoluto)
+const API_BASE = (import.meta as any).env?.VITE_API_URL || 'https://api.creapp.app';
+const API_URL = `${API_BASE.replace(/\/$/, '')}/v1/video/transform-to-vertical`;
 const API_KEY = 'l2jatniel';
 const WEBHOOK_URL = 'https://clickgo-n8n.1xrk3z.easypanel.host/webhook/videoYoutube';
 
