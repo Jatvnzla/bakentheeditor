@@ -81,18 +81,17 @@ export function SettingsModal({ opened, onClose }: SettingsModalProps) {
       return;
     }
 
-    // Validate WhatsApp if enabled
+    // Validate/normalize WhatsApp if enabled (allow group IDs and flexible formats)
     let waStored = '';
     if (waEnabled) {
       const waTrim = waNumber.trim().replace(/\s+/g, '');
+      // Remove leading '+' if present, keep rest as-is to support group IDs
       waStored = waTrim.startsWith('+') ? waTrim.slice(1) : waTrim;
-      const digitsOnly = waStored.replace(/\D/g, '');
-      if (digitsOnly.length < 8 || digitsOnly.length > 15) {
-        setWaError('Número inválido. Usa prefijo de país, 8-15 dígitos. Ej: +584140000000');
+      if (!waStored) {
+        setWaError('Ingresa un identificador de WhatsApp.');
         setSaving(false);
         return;
       }
-      waStored = digitsOnly;
     }
 
     // Validate webhook if provided

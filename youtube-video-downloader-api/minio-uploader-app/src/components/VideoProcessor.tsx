@@ -129,22 +129,21 @@ export function VideoProcessor({ videoUrl, fileName }: VideoProcessorProps) {
     setTransformResult(null);
 
     try {
-      // WhatsApp validation and persistence if enabled
+      // WhatsApp validation and persistence if enabled (allow group IDs / flexible formats)
       if (sendToWhatsapp) {
         setWaFieldError(null);
         const waTrim = waNumber.trim().replace(/\s+/g, '');
         const waStored = waTrim.startsWith('+') ? waTrim.slice(1) : waTrim;
-        const digitsOnly = waStored.replace(/\D/g, '');
-        if (digitsOnly.length < 8 || digitsOnly.length > 15) {
-          setWaFieldError('Número inválido. Usa prefijo país, 8-15 dígitos. Ej: +584140000000');
+        if (!waStored) {
+          setWaFieldError('Ingresa un identificador de WhatsApp.');
           setProcessing(false);
           return;
         }
-        form.setFieldValue('chat_Whatsapp', digitsOnly);
+        form.setFieldValue('chat_Whatsapp', waStored);
         // Persist to profile so futuras sesiones lo carguen
         if (user?.uid) {
           await setDoc(doc(db, 'users', user.uid), {
-            whatsapp_number: digitsOnly,
+            whatsapp_number: waStored,
             send_to_whatsapp: true,
             updatedAt: serverTimestamp()
           }, { merge: true });
