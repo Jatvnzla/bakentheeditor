@@ -1,7 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { videoService } from '../services/videoService';
-import { Card, Button, Loader, Alert, Group, Text, Badge, Stack } from '@mantine/core';
+import { Card, Button, Loader, Alert, Group, Text, Badge, Stack, Tooltip, ActionIcon } from '@mantine/core';
 import { testFragmentRegistration, cleanupTestFragments } from '../services/testFragmentRegistration';
+import { IconRefresh, IconTestPipe, IconTrash, IconEye } from '@tabler/icons-react';
+
+// Definición de tipos para fragmentos de video
+interface VideoFragment {
+  id: string;
+  title: string;
+  description?: string;
+  minioUrl: string;
+  status: 'pending' | 'processing' | 'completed' | 'error';
+  duration?: number;
+  parentId: string;
+  metadata?: {
+    segment_number?: number;
+    start_time?: number;
+    end_time?: number;
+    [key: string]: any;
+  };
+}
 
 interface VideoFragmentsProps {
   videoId: string;
@@ -9,7 +27,7 @@ interface VideoFragmentsProps {
 }
 
 const VideoFragments: React.FC<VideoFragmentsProps> = ({ videoId, onFragmentSelect }) => {
-  const [fragments, setFragments] = useState<any[]>([]);
+  const [fragments, setFragments] = useState<VideoFragment[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [testMode, setTestMode] = useState<boolean>(false);
@@ -121,6 +139,8 @@ const VideoFragments: React.FC<VideoFragmentsProps> = ({ videoId, onFragmentSele
               target="_blank" 
               rel="noopener noreferrer"
               size="xs"
+              leftSection={<IconEye size="0.9rem" />}
+              variant="light"
             >
               Ver Video
             </Button>
@@ -153,22 +173,27 @@ const VideoFragments: React.FC<VideoFragmentsProps> = ({ videoId, onFragmentSele
       <Group justify="space-between" align="center" mb="md">
         <Text fw={700} size="lg">Fragmentos de Video</Text>
         <Group>
-          <Button 
-            variant="outline" 
-            size="xs" 
-            onClick={loadFragments} 
-            disabled={loading}
-            leftSection={loading ? <Loader size="xs" /> : null}
-          >
-            {loading ? 'Cargando...' : 'Actualizar'}
-          </Button>
-          <Button 
-            variant="subtle" 
-            size="xs" 
-            onClick={() => setTestMode(!testMode)}
-          >
-            {testMode ? 'Ocultar Pruebas' : 'Mostrar Pruebas'}
-          </Button>
+          <Tooltip label="Actualizar fragmentos">
+            <ActionIcon 
+              variant="outline" 
+              size="lg" 
+              onClick={loadFragments} 
+              disabled={loading}
+              loading={loading}
+            >
+              <IconRefresh size="1.2rem" />
+            </ActionIcon>
+          </Tooltip>
+          <Tooltip label={testMode ? 'Ocultar herramientas de prueba' : 'Mostrar herramientas de prueba'}>
+            <ActionIcon 
+              variant="subtle" 
+              size="lg" 
+              onClick={() => setTestMode(!testMode)}
+              color={testMode ? 'blue' : 'gray'}
+            >
+              <IconTestPipe size="1.2rem" />
+            </ActionIcon>
+          </Tooltip>
         </Group>
       </Group>
 
@@ -192,19 +217,21 @@ const VideoFragments: React.FC<VideoFragmentsProps> = ({ videoId, onFragmentSele
                 color="yellow" 
                 onClick={handleTestRegistration} 
                 disabled={testLoading}
-                leftSection={testLoading ? <Loader size="xs" /> : null}
+                loading={testLoading && !fragments.some(f => f.metadata?.is_test)}
+                leftSection={<IconTestPipe size="1rem" />}
                 size="sm"
               >
-                {testLoading ? 'Ejecutando...' : 'Probar Registro de Fragmentos'}
+                Probar Registro de Fragmentos
               </Button>
               <Button 
                 color="red" 
                 onClick={handleCleanupTest} 
-                disabled={testLoading}
-                leftSection={testLoading ? <Loader size="xs" /> : null}
+                disabled={testLoading || !fragments.some(f => f.metadata?.is_test)}
+                loading={testLoading && fragments.some(f => f.metadata?.is_test)}
+                leftSection={<IconTrash size="1rem" />}
                 size="sm"
               >
-                {testLoading ? 'Limpiando...' : 'Limpiar Fragmentos de Prueba'}
+                Limpiar Fragmentos de Prueba
               </Button>
             </Group>
           </Card.Section>
