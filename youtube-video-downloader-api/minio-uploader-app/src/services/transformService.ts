@@ -50,9 +50,21 @@ export interface TransformResponse {
   }[];
 }
 
+export interface TransformStatusResponse {
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  job_id: string;
+  message?: string;
+  progress?: number;
+  result_url?: string;
+  error?: string;
+  completed_at?: string;
+  started_at?: string;
+}
+
 // Configuración de la API
 // Usar proxy local para evitar problemas de CORS
 const API_URL = '/api/v1/video/transform-to-vertical';
+const STATUS_API_URL = '/api/v1/video/transform-status';
 const API_KEY = 'l2jatniel';
 const WEBHOOK_URL = 'https://clickgo-n8n.1xrk3z.easypanel.host/webhook/videoYoutube';
 
@@ -196,4 +208,50 @@ export const generateJobId = (fileName: string = ''): string => {
     : 'unknown';
   
   return `transform_${safeFileName}_${formattedDate}_${Math.random().toString(36).substring(2, 7)}`;
+};
+
+// Función para verificar el estado de un trabajo de transformación
+export const getTransformStatus = async (jobId: string): Promise<TransformStatusResponse> => {
+  try {
+    const response = await fetch(`${STATUS_API_URL}/${jobId}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-KEY': API_KEY
+      }
+    });
+
+    if (!response.ok) {
+      let errorMessage = `Error HTTP: ${response.status}`;
+      try {
+        const errorData = await response.json();
+        if (errorData.message) {
+          errorMessage = `${errorMessage} - ${errorData.message}`;
+        } else if (errorData.error) {
+          errorMessage = `${errorMessage} - ${errorData.error}`;
+        } else if (errorData.detail) {
+          errorMessage = `${errorMessage} - ${errorData.detail}`;
+        }
+        console.error('Respuesta de error del servidor:', errorData);
+      } catch (e) {
+        console.error('No se pudo parsear la respuesta de error');
+      }
+      throw new Error(errorMessage);
+    }
+
+    const data: TransformStatusResponse = await response.json();
+    console.log('Estado del trabajo de transformación:', data);
+    
+    return data;
+  } catch (error) {
+    console.error('Error al verificar estado de transformación:', error);
+    throw error;
+  }
+};
+
+// Exportar el servicio como un objeto para facilitar su uso
+export const transformService = {
+  transformVideo,
+  getTransformStatus,
+  generateJobId
 };

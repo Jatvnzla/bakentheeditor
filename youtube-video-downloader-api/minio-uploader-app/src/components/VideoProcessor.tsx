@@ -56,13 +56,16 @@ import { uploadToMinio, minioConfig } from '../services/minio';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../services/firebase';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { videoService } from '../services/videoService';
+import { transformStatusService } from '../services/transformStatusService';
 
 interface VideoProcessorProps {
   videoUrl: string;
   fileName: string;
+  videoId?: string; // ID del video en Firebase
 }
 
-export function VideoProcessor({ videoUrl, fileName }: VideoProcessorProps) {
+export function VideoProcessor({ videoUrl, fileName, videoId }: VideoProcessorProps) {
   const [showSettings, setShowSettings] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -127,6 +130,19 @@ export function VideoProcessor({ videoUrl, fileName }: VideoProcessorProps) {
     setError(null);
     setSuccess(null);
     setTransformResult(null);
+    
+    // Actualizar el estado del video en Firebase si tenemos un videoId
+    if (videoId && user) {
+      try {
+        await videoService.updateVideo(videoId, {
+          status: 'processing'
+        });
+        console.log(`Estado del video ${videoId} actualizado a 'processing'`);
+      } catch (firebaseError) {
+        console.error('Error al actualizar estado del video en Firebase:', firebaseError);
+        // No interrumpimos el flujo si falla la actualización en Firebase
+      }
+    }
 
     try {
       // WhatsApp validation and persistence if enabled (allow group IDs / flexible formats)
@@ -167,6 +183,26 @@ export function VideoProcessor({ videoUrl, fileName }: VideoProcessorProps) {
       const result = await transformVideo(videoUrl, finalValues);
       setTransformResult(result);
       setSuccess(`Video enviado para transformación.`);
+      
+      // Actualizar el estado del video en Firebase con el job_id
+      if (videoId && user) {
+        try {
+          await videoService.updateVideo(videoId, {
+            status: 'processing',
+            metadata: {
+              ...result,
+              job_id: result.job_id
+            }
+          });
+          console.log(`Video ${videoId} actualizado con job_id: ${result.job_id}`);
+          
+          // Iniciar polling de estado para actualizar automáticamente
+          transformStatusService.startStatusPolling(result.job_id, videoId);
+          console.log(`Iniciado polling de estado para job_id: ${result.job_id}`);
+        } catch (firebaseError) {
+          console.error('Error al actualizar video con job_id:', firebaseError);
+        }
+      }
     } catch (error) {
       console.error('Error al transformar video:', error);
       

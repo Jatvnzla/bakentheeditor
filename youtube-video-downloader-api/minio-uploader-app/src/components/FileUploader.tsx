@@ -18,17 +18,21 @@ import {
   Alert,
   Stack,
   Divider,
+  TextInput,
+  Textarea,
+  Modal,
   rem
 } from '@mantine/core';
 import { 
   IconUpload, 
   IconX, 
   IconFile, 
-  IconCheck,
   IconAlertCircle
 } from '@tabler/icons-react';
 import { uploadToMinio, minioConfig } from '../services/minio';
 import { VideoProcessor } from './VideoProcessor';
+import { videoService, convertMinioVideoToFirebase } from '../services/videoService';
+import { useAuth } from '../context/AuthContext';
 
 interface UploadedFile {
   url: string;
@@ -36,6 +40,7 @@ interface UploadedFile {
   bucket: string;
   objectName: string;
   isVideo: boolean;
+  videoId?: string; // ID del video en Firebase
 }
 
 export function FileUploader() {
@@ -44,7 +49,11 @@ export function FileUploader() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null); // mantenido por compat, ya no se muestra
+  const [showMetadataModal, setShowMetadataModal] = useState(false);
+  const [currentFile, setCurrentFile] = useState<UploadedFile | null>(null);
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const { user } = useAuth();
 
   const handleDrop = (acceptedFiles: FileWithPath[]) => {
     setFiles(acceptedFiles);
@@ -60,7 +69,6 @@ export function FileUploader() {
     setUploading(true);
     setUploadProgress(0);
     setError(null);
-    setSuccess(null);
     
     const uploadedFilesList: UploadedFile[] = [];
     
@@ -84,18 +92,62 @@ export function FileUploader() {
         const isVideo = file.type.startsWith('video/') || 
                        /\.(mp4|avi|mov|wmv|flv|webm|mkv|m4v)$/i.test(file.name);
         
-        uploadedFilesList.push({
+        const uploadedFile: UploadedFile = {
           url,
           fileName: file.name,
           bucket: minioConfig.bucket,
           objectName: fileName, // Solo el nombre del archivo, sin ruta
           isVideo
-        });
+        };
+        
+        // Si es un video y el usuario está autenticado, registrarlo en Firebase
+        if (isVideo && user) {
+          try {
+            // Obtener información básica del archivo para los metadatos
+            const metadata = {
+              fileSize: file.size,
+              mimeType: file.type,
+              uploadDate: new Date().toISOString()
+            };
+            
+            // Crear registro inicial en Firebase con estado pendiente
+            const videoData = convertMinioVideoToFirebase(
+              url,
+              file.name,
+              user.uid,
+              'pending',  // Estado inicial: pendiente
+              'original', // Tipo: original (no fragmento)
+              undefined,  // No tiene parentId
+              undefined,  // No conocemos la duración aún
+              undefined,  // No tenemos thumbnail aún
+              metadata    // Metadatos adicionales
+            );
+            
+            // Guardar en Firebase
+            const videoId = await videoService.createVideo(videoData);
+            uploadedFile.videoId = videoId;
+            
+            console.log(`Video registrado en Firebase con ID: ${videoId}`);
+          } catch (firebaseError) {
+            console.error('Error al registrar video en Firebase:', firebaseError);
+            // No interrumpimos el flujo si falla el registro en Firebase
+          }
+        }
+        
+        uploadedFilesList.push(uploadedFile);
       }
       
       setUploadedFiles(uploadedFilesList);
-      setSuccess(`${files.length} archivo(s) subido(s) correctamente a MinIO`);
       setFiles([]); // Limpiar la lista de archivos después de subir
+      
+      // Si hay videos subidos, mostrar modal para añadir metadatos al primero
+      const firstVideo = uploadedFilesList.find(file => file.isVideo);
+      if (firstVideo && firstVideo.videoId) {
+        setCurrentFile(firstVideo);
+        setTitle(firstVideo.fileName.replace(/\.[^/.]+$/, '')); // Nombre sin extensión
+        setDescription('');
+        setShowMetadataModal(true);
+      }
     } catch (error) {
       console.error('Error al subir archivos:', error);
       
@@ -112,6 +164,34 @@ export function FileUploader() {
       setError(`Error al subir archivos: ${errorMessage}`);
     } finally {
       setUploading(false);
+    }
+  };
+  
+  // Función para guardar los metadatos del video
+  const handleSaveMetadata = async () => {
+    if (!currentFile || !currentFile.videoId) return;
+    
+    try {
+      await videoService.updateVideo(currentFile.videoId, {
+        title,
+        description
+      });
+      
+      // Actualizar el siguiente video si hay más
+      const currentIndex = uploadedFiles.findIndex(file => file === currentFile);
+      const nextVideo = uploadedFiles.slice(currentIndex + 1).find(file => file.isVideo && file.videoId);
+      
+      if (nextVideo) {
+        setCurrentFile(nextVideo);
+        setTitle(nextVideo.fileName.replace(/\.[^/.]+$/, '')); // Nombre sin extensión
+        setDescription('');
+      } else {
+        setShowMetadataModal(false);
+      }
+    } catch (error) {
+      console.error('Error al guardar metadatos:', error);
+      setError('Error al guardar metadatos del video');
+      setShowMetadataModal(false);
     }
   };
 
@@ -213,8 +293,6 @@ export function FileUploader() {
         </Alert>
       )}
       
-      {/* Éxito: se omite el Alert para evitar redundancia visual */}
-      
       {uploadedFiles.length > 0 && (
         <Box mt="md">
           <Divider my="md" />
@@ -226,6 +304,7 @@ export function FileUploader() {
                   <VideoProcessor
                     videoUrl={file.url}
                     fileName={file.fileName}
+                    videoId={file.videoId}
                   />
                 )}
               </Box>
@@ -233,6 +312,38 @@ export function FileUploader() {
           </Stack>
         </Box>
       )}
+      
+      {/* Modal para añadir metadatos */}
+      <Modal
+        opened={showMetadataModal}
+        onClose={() => setShowMetadataModal(false)}
+        title="Información del video"
+        size="lg"
+      >
+        <Stack>
+          <TextInput
+            label="Título del video"
+            placeholder="Ingresa un título descriptivo"
+            value={title}
+            onChange={(e) => setTitle(e.currentTarget.value)}
+            required
+          />
+          
+          <Textarea
+            label="Descripción"
+            placeholder="Describe el contenido del video"
+            value={description}
+            onChange={(e) => setDescription(e.currentTarget.value)}
+            minRows={3}
+          />
+          
+          <Group justify="flex-end" mt="md">
+            <Button onClick={handleSaveMetadata}>
+              Guardar y continuar
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </Paper>
   );
 }
