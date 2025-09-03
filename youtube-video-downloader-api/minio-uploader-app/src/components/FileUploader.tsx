@@ -117,9 +117,9 @@ export function FileUploader() {
               user.uid,
               'pending',  // Estado inicial: pendiente
               'original', // Tipo: original (no fragmento)
-              undefined,  // No tiene parentId
-              undefined,  // No conocemos la duración aún
-              undefined,  // No tenemos thumbnail aún
+              null,       // No tiene parentId
+              null,       // No conocemos la duración aún
+              null,       // No tenemos thumbnail aún
               metadata    // Metadatos adicionales
             );
             

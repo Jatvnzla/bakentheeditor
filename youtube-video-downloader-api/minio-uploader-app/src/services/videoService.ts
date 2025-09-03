@@ -20,10 +20,10 @@ export interface Video {
   title: string;
   description: string;
   minioUrl: string;
-  thumbnailUrl?: string;
-  duration?: number;
+  thumbnailUrl: string | null; // Cambiado de opcional a null
+  duration: number | null; // Cambiado de opcional a null
   type: 'original' | 'fragment';
-  parentId?: string;
+  parentId: string | null; // Cambiado de opcional a null
   status: 'pending' | 'processing' | 'completed' | 'error';
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
@@ -349,28 +349,28 @@ export const convertMinioVideoToFirebase = (
   userId: string,
   initialStatus: 'pending' | 'processing' | 'completed' | 'error' = 'pending',
   type: 'original' | 'fragment' = 'original',
-  parentId?: string,
-  duration?: number,
-  thumbnailUrl?: string,
+  parentId: string | null = null,
+  duration: number | null = null,
+  thumbnailUrl: string | null = null,
   metadata: Record<string, any> = {}
 ): Omit<Video, 'id' | 'createdAt' | 'updatedAt'> => {
   return {
     title: fileName.replace(/\.[^/.]+$/, ''), // Eliminar extensión
     description: '',
     minioUrl,
-    thumbnailUrl,
-    duration,
+    thumbnailUrl, // Ya es null por defecto si no se proporciona
+    duration, // Ya es null por defecto si no se proporciona
     type,
-    parentId,
+    parentId, // Ya es null por defecto si no se proporciona
     status: initialStatus,
     userId,
     metadata: {
       originalFileName: fileName,
-      fileSize: metadata.fileSize,
-      mimeType: metadata.mimeType,
-      resolution: metadata.resolution,
-      format: metadata.format,
-      job_id: metadata.job_id,
+      fileSize: metadata.fileSize || null,
+      mimeType: metadata.mimeType || null,
+      resolution: metadata.resolution || null,
+      format: metadata.format || null,
+      job_id: metadata.job_id || null,
       ...metadata
     }
   };
